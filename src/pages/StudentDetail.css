@@ -1,0 +1,74 @@
+.detail-panel {
+  padding: 25px;
+  margin: 22px 0;
+}
+.detail-panel h3 {
+  font-size: 16px;
+}
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin: 20px 0;
+}
+.detail-grid label {
+  font-size: 12px;
+  font-weight: 600;
+}
+.detail-grid input,
+.detail-grid select,
+.detail-grid textarea {
+  display: block;
+  margin-top: 8px;
+}
+.payment-totals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 22px 0;
+}
+.payment-totals > span {
+  background: #f5f0ff;
+  padding: 16px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: #81728e;
+}
+.payment-totals strong {
+  display: block;
+  font-size: 16px;
+  color: #453251;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.attempt-detail {
+  border-bottom: 1px solid var(--line);
+  padding: 18px 0;
+  font-size: 12px;
+}
+.attempt-detail summary {
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1.8;
+}
+.attempt-detail p,
+.detail-panel .submission p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+.detail-panel td {
+  max-width: 320px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .payment-totals {
+    grid-template-columns: 1fr 1fr;
+  }
+  .detail-panel {
+    padding: 17px;
+  }
+}

@@ -1,0 +1,274 @@
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 17px;
+  margin: 28px 0;
+}
+.stat {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.stat svg {
+  color: var(--purple);
+}
+.stat strong {
+  font-size: 30px;
+  letter-spacing: -1px;
+}
+.stat span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.table-panel {
+  padding: 23px;
+}
+.table-panel h3 {
+  font-size: 15px;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+th {
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  color: #9790a5;
+  font-weight: 500;
+  padding: 18px 10px;
+  border-bottom: 1px solid var(--line);
+}
+td {
+  padding: 20px 10px;
+  border-bottom: 1px solid #f1edf6;
+}
+td small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 6px;
+}
+td .progress {
+  min-width: 90px;
+}
+.admin-note {
+  padding: 24px;
+  background: #e8eafc;
+  display: flex;
+  gap: 19px;
+  align-items: center;
+  border-radius: 12px;
+  margin-top: 25px;
+  color: var(--purple);
+}
+.admin-note strong {
+  font-size: 13px;
+}
+.admin-note p {
+  font-size: 11px;
+  line-height: 1.8;
+}
+.admin-note a {
+  margin-left: auto;
+}
+.admin-lessons {
+  display: grid;
+  gap: 14px;
+  margin-top: 28px;
+}
+.admin-lesson {
+  padding: 22px;
+  display: flex;
+  align-items: center;
+  gap: 17px;
+}
+.admin-lesson h3 {
+  font-size: 14px;
+  margin: 0;
+}
+.admin-lesson p {
+  font-size: 11px;
+  color: var(--muted);
+}
+.grow {
+  flex: 1;
+}
+.actions {
+  display: flex;
+  gap: 6px;
+}
+.actions button {
+  padding: 8px;
+  background: #f5f2fb;
+  color: #8b77ac;
+  display: grid;
+  place-items: center;
+}
+.actions .danger {
+  color: #c46778;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #20133170;
+  z-index: 10;
+  padding: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+.modal {
+  background: white;
+  width: 680px;
+  max-height: 92vh;
+  overflow: auto;
+  border-radius: 16px;
+  padding: 29px;
+  box-shadow: 0 30px 100px #21113340;
+}
+.modal.narrow {
+  width: 450px;
+}
+.modal h2 {
+  font-size: 21px;
+}
+.modal form > label,
+.review label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 18px 0;
+}
+.modal label input,
+.modal label textarea,
+.modal label select,
+.review label textarea {
+  margin-top: 8px;
+}
+.modal form > .primary {
+  margin-top: 20px;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  font-size: 12px;
+}
+.question-editor {
+  background: #f8f6fc;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin: 15px 0;
+}
+.question-editor strong {
+  font-size: 12px;
+}
+.question-editor > label {
+  display: block;
+  font-size: 11px;
+  margin-top: 15px;
+}
+.question-editor .option-editor {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.option-editor input[type="radio"] {
+  width: 15px;
+  accent-color: var(--purple);
+}
+.question-editor small {
+  font-size: 9px;
+  color: var(--muted);
+}
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 25px 0;
+  max-width: 440px;
+  color: #9287a4;
+}
+.review {
+  padding: 25px;
+  margin: 20px 0;
+}
+.review h3 {
+  font-size: 14px;
+  margin: 0;
+}
+.review p {
+  font-size: 12px;
+  color: var(--muted);
+}
+.answer-text {
+  background: #f8f6fb;
+  border: 1px solid var(--line);
+  padding: 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 22px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.button-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.review form > .primary {
+  margin-top: 15px;
+}
+@media (max-width: 1000px) {
+  .stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .admin-lesson {
+    flex-wrap: wrap;
+  }
+  .admin-lesson .actions {
+    margin-left: 50px;
+  }
+  .modal-backdrop {
+    padding: 10px;
+  }
+  .modal {
+    padding: 20px;
+  }
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .table-panel {
+    padding: 15px;
+  }
+  .stats {
+    gap: 10px;
+  }
+  .stat {
+    padding: 17px;
+  }
+}
+
+.course-manager {
+  font-size: 12px;
+  max-width: 400px;
+}
+.course-manager summary {
+  cursor: pointer;
+  padding: 12px;
+}
+.course-manager .row {
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+}

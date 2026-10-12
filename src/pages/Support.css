@@ -1,0 +1,66 @@
+.support-content {
+  max-width: 720px;
+}
+.support-form {
+  padding: 27px;
+}
+.support-form h3 {
+  margin: 0 0 25px;
+  font-size: 16px;
+}
+.support-form label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 20px 0;
+}
+.support-form select,
+.support-form textarea {
+  margin-top: 9px;
+}
+.support-form textarea {
+  min-height: 150px;
+}
+.support-form .primary {
+  width: 100%;
+  justify-content: center;
+}
+.ticket {
+  padding: 22px;
+  margin: 15px 0;
+}
+.ticket strong {
+  font-size: 12px;
+}
+.ticket p {
+  font-size: 12px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ticket small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.reply {
+  background: #f5f0ff;
+  padding: 15px;
+  border-radius: 9px;
+  margin: 15px 0;
+}
+.faq {
+  padding: 25px;
+}
+.faq details {
+  border-bottom: 1px solid var(--line);
+  padding: 20px 0;
+}
+.faq summary {
+  font-size: 13px;
+  cursor: pointer;
+}
+.faq p {
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--muted);
+}
