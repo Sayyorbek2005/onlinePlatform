@@ -1,104 +1,115 @@
-import { Award, CheckCircle, Lock, Printer } from "lucide-react";
+import { useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
-import { studentLessons, completed } from "../services/db";
+import {
+  enrollmentsFor,
+  hasCourse,
+  courseResult,
+  issueCertificate,
+} from "../services/db";
+import { downloadCertificate } from "../services/certificate";
 import "./Certificate.css";
 export default function Certificate() {
-  const { data, user } = useApp();
-  const lessons = studentLessons(data, user.id).filter((l) => l.published);
-  const count = lessons.filter((l) => completed(data, user.id, l.id)).length;
-  const ready =
-    lessons.length > 0 &&
-    count === lessons.length &&
-    lessons.every(
-      (l) =>
-        data.progress[user.id]?.[l.id]?.watched &&
-        data.submissions.some(
-          (s) =>
-            s.userId === user.id &&
-            s.lessonId === l.id &&
-            s.status === "approved",
-        ),
+  const { courseId } = useParams();
+  const { data, user, update, notify } = useApp();
+  const [busy, setBusy] = useState(false);
+  if (!courseId)
+    return (
+      <>
+        <h1>Sertifikatlar</h1>
+        <div className="course-grid">
+          {enrollmentsFor(data, user.id).map((e) => {
+            const result = courseResult(data, user.id, e.courseId);
+            return (
+              <Link
+                className="panel course-card"
+                key={e.id}
+                to={"/student/certificate/" + e.courseId}
+              >
+                <h2>{data.courses.find((c) => c.id === e.courseId)?.title}</h2>
+                <p>
+                  {result.ready ||
+                  data.certificates.some(
+                    (c) => c.userId === user.id && c.courseId === e.courseId,
+                  )
+                    ? "Sertifikat tayyor"
+                    : "Kursni yakunlang"}
+                </p>
+              </Link>
+            );
+          })}
+        </div>
+      </>
     );
+  if (!hasCourse(data, user.id, courseId)) return <p>Kursga kirish yopiq.</p>;
+  const result = courseResult(data, user.id, courseId),
+    existing = data.certificates.find(
+      (c) => c.userId === user.id && c.courseId === courseId,
+    ),
+    course = data.courses.find((c) => c.id === courseId);
+  async function download() {
+    setBusy(true);
+    try {
+      let cert = existing;
+      if (!cert) {
+        const ok = update((d) => {
+          cert = issueCertificate(d, user.id, courseId);
+        });
+        if (!ok) return;
+      }
+      await downloadCertificate(cert);
+    } catch (e) {
+      notify("PDF tayyorlanmadi: " + e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">NATIJANGIZGA MUNOSIB E’TIROF</div>
-          <h1>Sertifikat</h1>
-          <p>Kursni muvaffaqiyatli yakunlang va yutug‘ingizni nishonlang.</p>
-        </div>
-        <Award className="purple" size={30} />
-      </div>
-      <div className="certificate-layout">
-        <div className={"certificate " + (!ready ? "preview" : "")}>
-          <div className="cert-brand">✦ AI Academy</div>
-          <span className="cert-overline">
-            MUVAFFAQIYATLI TAMOMLAGANLIK UCHUN
-          </span>
-          <h2>SERTIFIKAT</h2>
-          <p>Ushbu sertifikat egasi</p>
-          <h3>{user.name}</h3>
-          <p>
-            «{data.courses.find((c) => c.id === user.courseId)?.title}»
-            kursidagi barcha darslar,
-            <br />
-            amaliy vazifalar va testlarni muvaffaqiyatli yakunladi.
-          </p>
-          <div className="cert-bottom">
-            <div>
-              <strong>
-                {ready ? new Date().toLocaleDateString("uz-UZ") : "—"}
-              </strong>
-              <small>Sana</small>
-            </div>
-            <div className="seal">
-              <Award size={35} />
-            </div>
-            <div>
-              <strong>AI Academy</strong>
-              <small>Ta’lim jamoasi</small>
-            </div>
-          </div>
-          <small>
-            ID: AI-{user.id.slice(0, 8).toUpperCase()} ·{" "}
-            {ready ? "Demo sertifikat" : "NAMUNA — HALI BERILMAGAN"}
-          </small>
-        </div>
-        <div className="panel cert-requirements">
-          <h3>Sertifikat olish shartlari</h3>
-          <p>
-            <CheckCircle size={17} /> Barcha videolarni oxirigacha ko‘rish
-          </p>
-          <p>
-            <CheckCircle size={17} /> Testlardan 70% dan yuqori olish
-          </p>
-          <p>
-            <CheckCircle size={17} /> Vazifalarni admin tasdiqlashi
-          </p>
-          <div className="progress">
-            <i
-              style={{
-                width:
-                  (lessons.length ? (count / lessons.length) * 100 : 0) + "%",
-              }}
-            />
-          </div>
-          <p>
-            {count}/{lessons.length} dars to‘liq yakunlangan
-          </p>
-          <button
-            className="primary"
-            disabled={!ready}
-            onClick={() => window.print()}
-          >
-            {ready ? <Printer size={16} /> : <Lock size={16} />}{" "}
-            {ready ? "Sertifikatni PDF saqlash" : "Hozircha yopiq"}
-          </button>
-          <small>
-            Ochilgach, chop etish oynasida “Save as PDF” ni tanlang.
-          </small>
-        </div>
-      </div>
+      <Link className="back" to="/student/certificate">
+        ← Sertifikatlar
+      </Link>
+      <h1>{course.title}</h1>
+      <section className="certificate">
+        <div className="cert-brand">AI Academy</div>
+        <h2>SERTIFIKAT</h2>
+        <p>
+          {existing
+            ? "Kursni muvaffaqiyatli yakunlagan"
+            : "Sertifikat namunasi — hali berilmagan"}
+        </p>
+        <h3>{existing?.name || user.name}</h3>
+        <p>{existing?.title || course.title}</p>
+        <strong>
+          Yakuniy test bahosi: {(existing?.score ?? result.average).toFixed(2)}%
+        </strong>
+        {existing && (
+          <p>{new Date(existing.createdAt).toLocaleDateString("uz-UZ")}</p>
+        )}
+      </section>
+      <section className="panel detail-panel">
+        <h2>Olish shartlari</h2>
+        <p>
+          Testlar: {result.tests}/{result.lessons.length} — har biridan 70% dan
+          yuqori.
+        </p>
+        <p>
+          Videolar: {result.watched}/{result.lessons.length}
+        </p>
+        <p>
+          Tasdiqlangan amaliy ishlar: {result.practical}/{result.lessons.length}
+        </p>
+        <p>
+          Yakuniy baho — har bir darsning eng yaxshi test natijalari o‘rtachasi.
+        </p>
+        <button
+          className="primary"
+          disabled={busy || (!existing && !result.ready)}
+          onClick={download}
+        >
+          {busy ? "PDF tayyorlanmoqda…" : "Sertifikatni PDF yuklab olish"}
+        </button>
+      </section>
     </>
   );
 }

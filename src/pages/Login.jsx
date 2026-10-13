@@ -1,5 +1,4 @@
 import { useState } from "react";
-import tat from '../assets/ittat.png'
 import { Navigate, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -38,9 +37,7 @@ export default function Login() {
   return (
     <div className="login-page">
       <div className="login-brand">
-        {/* <Brand /> */}
-         <img src={tat} alt="" style={{width: '70px'}} />
-        
+        <Brand />
         <span>Yangi imkoniyatlar shu yerdan boshlanadi</span>
       </div>
       <div className="login-grid">
@@ -49,14 +46,9 @@ export default function Login() {
             <Sparkles size={14} /> KELAJAK KO‘NIKMALARINI O‘RGANING
           </div>
           <h1>
-           <em>
-             IT TAT 
-             </em>
-             <br />
-               bilan
-            
-           
-              kelajagingizni
+            AI bilan
+            <br />
+            <em>kelajagingizni</em>
             <br />
             yarating.
           </h1>
@@ -66,7 +58,7 @@ export default function Login() {
             Sizning muvaffaqiyatingiz uchun.
           </p>
           <div className="ai-art">
-            {/* <div className="orbit orbit-one" />
+            <div className="orbit orbit-one" />
             <div className="orbit orbit-two" />
             <div className="float-icon one">
               <Sparkles />
@@ -77,8 +69,7 @@ export default function Login() {
             <div className="ai-cube">
               AI<span>your next chapter</span>
             </div>
-            <div className="art-base" /> */}
-            <img src={tat} alt="" style={{width: '350px'}} />
+            <div className="art-base" />
           </div>
           <div className="story-note">
             <span>✦</span> Birinchi qadamingiz — eng muhim qadam.
@@ -187,7 +178,7 @@ export default function Login() {
         </section>
       </div>
       <div className="login-footer">
-        © 2026 by Team Work <span>O‘zingizga sarmoya kiriting.</span>
+        © 2026 AI Academy <span>O‘zingizga sarmoya kiriting.</span>
       </div>
     </div>
   );

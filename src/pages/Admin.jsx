@@ -1,119 +1,90 @@
-import CourseManager from "../components/CourseManager";
+import { useState } from "react";
+import { Wallet } from "lucide-react";
+import Modal from "../components/Modal";
+import PaymentForm from "../components/PaymentForm";
 import { Link } from "react-router-dom";
-import {
-  Users,
-  BookOpen,
-  ClipboardCheck,
-  MessageSquare,
-  ArrowRight,
-} from "lucide-react";
 import { useApp } from "../context/AppContext";
-import { completed } from "../services/db";
+import { paymentSummary, money } from "../services/db";
+import CourseManager from "../components/CourseManager";
 import "./Admin.css";
 export default function Admin() {
-  const { data } = useApp();
+  const { data, notify } = useApp();
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [coursesOpen, setCoursesOpen] = useState(false);
   const students = data.users.filter((u) => u.role === "student");
-  const lessons = data.lessons.filter((l) => l.published);
+  const debt = students.reduce((n, u) => n + paymentSummary(data, u).debt, 0);
   return (
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">AI ACADEMY · ADMIN</div>
           <h1>Umumiy ko‘rinish</h1>
-          <p>Ta’lim jarayoni va o‘quvchilar natijalari bir joyda.</p>
+          <p>Kurslar, talabalar va natijalar bir joyda.</p>
         </div>
         <div className="button-row">
-          <CourseManager />
+          <button className="primary" onClick={() => setPaymentOpen(true)}>
+            <Wallet size={22} /> To‘lov qo‘shish
+          </button>
+          <CourseManager open={coursesOpen} onOpenChange={setCoursesOpen} />
           <Link className="primary" to="/admin/lessons">
-            + Dars qo‘shish
+            + Yangi dars
           </Link>
         </div>
       </div>
       <div className="stats">
         {[
-          [Users, "O‘quvchilar", students.length, "/admin/students"],
+          [students.length, "Talabalar", "/admin/students"],
+          [data.courses.length, "Kurslar", "/admin/lessons"],
           [
-            BookOpen,
-            "E’lon qilingan darslar",
-            lessons.length,
-            "/admin/lessons",
-          ],
-          [
-            ClipboardCheck,
-            "Kutilayotgan vazifalar",
             data.submissions.filter((s) => s.status === "pending").length,
+            "Kutilayotgan amaliy ishlar",
             "/admin/reviews",
           ],
-          [
-            MessageSquare,
-            "Yangi murojaatlar",
-            data.tickets.filter((t) => !t.reply).length,
-            "/admin/support",
-          ],
-        ].map(([Icon, title, n, to]) => (
-          <Link className="panel stat" to={to} key={title}>
-            <Icon size={21} />
-            <strong>{n}</strong>
-            <span>{title}</span>
-          </Link>
-        ))}
+          [money(debt), "Jami qarzdorlik", "/admin/finance"],
+        ].map(([n, t, to]) =>
+          t === "Kurslar" ? (
+            <button
+              className="panel stat"
+              key={t}
+              onClick={() => setCoursesOpen(true)}
+            >
+              <strong>{n}</strong>
+              <span>{t} →</span>
+            </button>
+          ) : (
+            <Link className="panel stat" key={t} to={to}>
+              <strong>{n}</strong>
+              <span>{t} →</span>
+            </Link>
+          ),
+        )}
       </div>
-      <section className="panel table-panel">
-        <div className="row">
-          <h3>O‘quvchilar progressi</h3>
-          <Link className="purple small" to="/admin/students">
-            Barchasi →
-          </Link>
-        </div>
+      <section className="panel detail-panel">
+        <h2>Talabalar</h2>
         <div className="table-scroll">
           <table>
             <thead>
               <tr>
-                <th>O‘quvchi</th>
-                <th>Holat</th>
-                <th>Yakunlangan darslar</th>
-                <th>Progress</th>
+                <th>Ism</th>
+                <th>Kurslar</th>
+                <th>To‘lov</th>
+                <th>Qarz</th>
               </tr>
             </thead>
             <tbody>
               {students.map((u) => {
-                const n = lessons.filter(
-                  (l) =>
-                    l.courseId === u.courseId && completed(data, u.id, l.id),
-                ).length;
+                const s = paymentSummary(data, u);
                 return (
                   <tr key={u.id}>
                     <td>
                       <Link className="purple" to={"/admin/students/" + u.id}>
-                        <strong>{u.name} →</strong>
+                        {u.name} →
                       </Link>
-                      <small>{u.email}</small>
                     </td>
                     <td>
-                      <span className={"badge " + (u.active ? "green" : "")}>
-                        {u.active ? "Faol" : "Bloklangan"}
-                      </span>
+                      {data.enrollments.filter((e) => e.userId === u.id).length}
                     </td>
-                    <td>
-                      {n}/
-                      {lessons.filter((l) => l.courseId === u.courseId).length}
-                    </td>
-                    <td>
-                      <div className="progress">
-                        <i
-                          style={{
-                            width:
-                              (lessons.length
-                                ? (n /
-                                    (lessons.filter(
-                                      (l) => l.courseId === u.courseId,
-                                    ).length || 1)) *
-                                  100
-                                : 0) + "%",
-                          }}
-                        />
-                      </div>
-                    </td>
+                    <td>{money(s.paid)}</td>
+                    <td>{money(s.debt)}</td>
                   </tr>
                 );
               })}
@@ -121,19 +92,16 @@ export default function Admin() {
           </table>
         </div>
       </section>
-      <div className="admin-note">
-        <BookOpen size={22} />
-        <div>
-          <strong>Kursingizni ishga tushiring</strong>
-          <p>
-            Darsga video yuklang, test kiriting va e’lon qiling. O‘quvchilar
-            vazifalarini “Vazifalar” bo‘limida tekshiring.
-          </p>
-        </div>
-        <Link to="/admin/lessons">
-          <ArrowRight size={20} />
-        </Link>
-      </div>
+      {paymentOpen && (
+        <Modal title="To‘lov qo‘shish" onClose={() => setPaymentOpen(false)}>
+          <PaymentForm
+            onSaved={() => {
+              setPaymentOpen(false);
+              notify("To‘lov saqlandi. Dashboard va moliya yangilandi.");
+            }}
+          />
+        </Modal>
+      )}
     </>
   );
 }

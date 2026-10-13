@@ -1,33 +1,31 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useApp } from "../context/AppContext";
+import { reviewPractice, downloadMaterial } from "../services/db";
 import "./Admin.css";
 export default function AdminReviews() {
-  const { data, update, notify } = useApp();
+  const { data, user, update, notify } = useApp();
   const [filter, setFilter] = useState("pending");
-  const [feedback, setFeedback] = useState({});
-  function review(id, status) {
-    update((d) => {
-      const s = d.submissions.find((x) => x.id === id);
-      s.status = status;
-      s.feedback = feedback[id] ?? s.feedback ?? "";
-    });
-    notify(
-      status === "approved"
-        ? "Vazifa tasdiqlandi."
-        : "Vazifa qayta ishlashga yuborildi.",
-    );
-  }
-  const items = data.submissions.filter(
+  const list = data.submissions.filter(
     (s) => filter === "all" || s.status === filter,
   );
+  function review(e, s) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    update((d) =>
+      reviewPractice(
+        d,
+        s.id,
+        f.get("status"),
+        f.get("grade"),
+        f.get("feedback").trim(),
+        user.id,
+      ),
+    );
+  }
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Vazifalarni tekshirish</h1>
-          <p>O‘quvchilarga fikr bildiring va natijalarini tasdiqlang.</p>
-        </div>
-      </div>
+      <h1>Amaliy ishlarni tekshirish</h1>
       <div className="tabs">
         {[
           ["pending", "Kutilayotgan"],
@@ -44,54 +42,63 @@ export default function AdminReviews() {
           </button>
         ))}
       </div>
-      {!items.length && (
-        <div className="panel empty">Bu bo‘limda vazifalar yo‘q.</div>
-      )}
-      {items.map((s) => (
-        <article className="panel review" key={s.id}>
-          <div className="row">
-            <div>
-              <h3>
-                {data.users.find((u) => u.id === s.userId)?.name ||
-                  "O‘chirilgan o‘quvchi"}
-              </h3>
-              <p>{data.lessons.find((l) => l.id === s.lessonId)?.title}</p>
-            </div>
-            <span className="badge">
-              {
-                {
-                  pending: "Kutilmoqda",
-                  approved: "Tasdiqlangan",
-                  rejected: "Qaytarilgan",
-                }[s.status]
-              }
-            </span>
-          </div>
-          <div className="answer-text">{s.answer}</div>
-          <label>
-            O‘quvchiga izoh
-            <textarea
-              value={feedback[s.id] ?? s.feedback}
-              onChange={(e) =>
-                setFeedback({ ...feedback, [s.id]: e.target.value })
-              }
-              placeholder="Tavsiyangizni yozing…"
-            />
-          </label>
-          <div className="button-row">
-            <button
-              className="primary"
-              onClick={() => review(s.id, "approved")}
-            >
-              ✓ Tasdiqlash
-            </button>
+      {!list.length && <div className="panel empty">Amaliy ishlar yo‘q.</div>}
+      {[...list].reverse().map((s) => (
+        <article className="panel detail-panel" key={s.id}>
+          <Link className="purple" to={"/admin/students/" + s.userId}>
+            {data.users.find((u) => u.id === s.userId)?.name} →
+          </Link>
+          <h2>{s.lessonTitle}</h2>
+          <p className="answer-text">{s.answer}</p>
+          {s.attachment && (
             <button
               className="secondary"
-              onClick={() => review(s.id, "rejected")}
+              onClick={() =>
+                downloadMaterial(s.attachment).catch((e) => notify(e.message))
+              }
             >
-              Qayta ishlashga yuborish
+              {s.attachment.name} ↓
             </button>
-          </div>
+          )}
+          <p>{new Date(s.createdAt).toLocaleString("uz-UZ")}</p>
+          {s.status === "pending" ? (
+            <form onSubmit={(e) => review(e, s)}>
+              <div className="form-grid">
+                <label>
+                  Baho (0–100)
+                  <input
+                    name="grade"
+                    type="number"
+                    required
+                    min="0"
+                    max="100"
+                    step="1"
+                  />
+                </label>
+                <label>
+                  Natija
+                  <select name="status">
+                    <option value="approved">Tasdiqlash</option>
+                    <option value="rejected">Qayta ishlashga yuborish</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                Izoh
+                <textarea name="feedback" required minLength={3} />
+              </label>
+              <button className="primary">Natijani saqlash</button>
+            </form>
+          ) : (
+            <>
+              <p>
+                Baho: {s.grade ?? "—"} / 100 ·{" "}
+                {s.status === "approved" ? "Tasdiqlangan" : "Qaytarilgan"}
+              </p>
+              <p>{s.feedback}</p>
+              <p>Bu natija tarixga saqlangan va qayta tahrirlanmaydi.</p>
+            </>
+          )}
         </article>
       ))}
     </>

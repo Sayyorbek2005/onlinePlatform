@@ -107,7 +107,7 @@ export default function Support() {
             {[
               [
                 "Keyingi dars qanday ochiladi?",
-                "Oldingi faol darslar testidan 70% dan yuqori oling. Aynan 70% yetarli emas. Videoni ko‘rish va vazifani tasdiqlash sertifikat uchun talab qilinadi.",
+                "Shu kursdagi oldingi faol darslar testidan 70% dan yuqori oling. Aynan 70% yetarli emas. Videoni ko‘rish va vazifani tasdiqlash sertifikat uchun talab qilinadi.",
               ],
               [
                 "Sertifikatni qanday olaman?",

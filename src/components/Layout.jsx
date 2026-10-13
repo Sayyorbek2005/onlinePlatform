@@ -1,5 +1,5 @@
-import { NavLink, Outlet, Navigate } from "react-router-dom";
-import tat from '../assets/ittat.png'
+import { useState } from "react";
+import { NavLink, Outlet, Navigate, useNavigate } from "react-router-dom";
 import {
   BookOpen,
   Award,
@@ -10,87 +10,136 @@ import {
   Clapperboard,
   ClipboardCheck,
   MessageSquare,
-  ArrowUpRight,
+  Wallet,
+  Menu,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
+import { enrollmentsFor } from "../services/db";
+import Modal from "./Modal";
 import "./Layout.css";
 export function Brand() {
   return (
     <div className="brand">
-       <img src={tat} alt="" style={{width: '100px'}} />
+      <span>AI</span> Academy
     </div>
   );
 }
 export default function Layout() {
-  const { user, logout } = useApp();
+  const { data, user, logout } = useApp();
+  const go = useNavigate();
+  const [confirm, setConfirm] = useState(false),
+    [menu, setMenu] = useState(false),
+    [expanded, setExpanded] = useState(true);
   if (!user) return <Navigate to="/login" replace />;
   const admin = user.role === "admin";
   const links = admin
     ? [
         ["/admin", LayoutDashboard, "Umumiy ko‘rinish"],
-        ["/admin/lessons", Clapperboard, "Darslar va testlar"],
-        ["/admin/students", Users, "O‘quvchilar"],
-        ["/admin/reviews", ClipboardCheck, "Vazifalar"],
+        ["/admin/lessons", Clapperboard, "Kurslar va darslar"],
+        ["/admin/students", Users, "Talabalar"],
+        ["/admin/finance", Wallet, "Moliya"],
+        ["/admin/reviews", ClipboardCheck, "Amaliy ishlar"],
         ["/admin/support", MessageSquare, "Murojaatlar"],
       ]
     : [
-        ["/student", BookOpen, "Mening kursim"],
-        ["/student/certificate", Award, "Sertifikat"],
-        ["/student/support", Headphones, "Qo‘llab-quvvatlash"],
+        ["/student", BookOpen, "Mening kurslarim"],
+        ["/student/certificate", Award, "Sertifikatlar"],
+        ["/student/support", Headphones, "Yordam"],
       ];
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <header className="topbar">
+        <button
+          className="mobile-menu ghost"
+          onClick={() => setMenu(!menu)}
+          aria-label="Menyu"
+        >
+          <Menu />
+        </button>
         <Brand />
-        <div className="nav-label">
-          {admin ? "BOSHQARUV PANELI" : "O‘QUV PLATFORMASI"}
+        <div className="header-account">
+          <span>{user.name}</span>
+          <button className="secondary" onClick={() => setConfirm(true)}>
+            <LogOut size={22} /> Log out
+          </button>
         </div>
+      </header>
+      <aside className={"sidebar " + (menu ? "open" : "")}>
+        <p className="nav-label">{admin ? "ADMIN PANEL" : "O‘QUVCHI PANELI"}</p>
         <nav>
-          {links.map(([to, Icon, title]) => (
-            <NavLink end key={to} to={to}>
-              <Icon size={19} />
-              <span>{title}</span>
-            </NavLink>
+          {links.map(([to, Icon, label]) => (
+            <div key={to}>
+              <NavLink
+                end
+                to={to}
+                onClick={() => {
+                  setMenu(false);
+                  if (to === "/student") setExpanded(true);
+                }}
+              >
+                <Icon size={22} />
+                {label}
+              </NavLink>
+              {to === "/student" && (
+                <>
+                  <button
+                    className="text-btn course-toggle"
+                    onClick={() => setExpanded(!expanded)}
+                  >
+                    {expanded ? "Kurslarni yashirish" : "Kurslarni ko‘rsatish"}
+                  </button>
+                  {expanded && (
+                    <div className="subnav">
+                      {enrollmentsFor(data, user.id).map((e) => (
+                        <NavLink
+                          key={e.id}
+                          to={"/student/course/" + e.courseId}
+                          onClick={() => setMenu(false)}
+                        >
+                          {data.courses.find((c) => c.id === e.courseId)
+                            ?.title || "Kurs"}
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          {!admin && (
-            <div className="mini-card">
-              <span>Har kuni bir qadam ✦</span>
-              <p>Katta natijalar kichik qadamlardan boshlanadi.</p>
-              <BookOpen size={25} />
-            </div>
-          )}
-          <div className="account">
-            <div className="avatar">{user.name[0]}</div>
-            <div>
-              <strong>{user.name}</strong>
-              <small>{user.email}</small>
-            </div>
-          </div>
-          <button className="logout" onClick={logout}>
-            <LogOut size={17} /> Sign out
-          </button>
+          <span className="badge">Demo rejim</span>
+          <p>Bilim sari yangi qadam.</p>
         </div>
       </aside>
       <div className="main-wrap">
-        <header className="topbar">
-          <span>O‘rganing. Yarating. O‘sing.</span>
-          <div>
-            <span className="mode-dot" /> Demo platforma{" "}
-            <span className="top-avatar">{user.name[0]}</span>
-          </div>
-        </header>
         <main>
           <Outlet />
         </main>
-        <footer>
-          © {new Date().getFullYear()} AI Academy{" "}
-          <span>
-            Kelajak bugundan boshlanadi <ArrowUpRight size={13} />
-          </span>
-        </footer>
+        <footer>© {new Date().getFullYear()} AI Academy</footer>
       </div>
+      {confirm && (
+        <Modal
+          title="Hisobdan chiqmoqchimisiz?"
+          onClose={() => setConfirm(false)}
+        >
+          <p>Chiqishni tasdiqlaysizmi?</p>
+          <div className="button-row">
+            <button className="secondary" onClick={() => setConfirm(false)}>
+              Yo‘q, qolaman
+            </button>
+            <button
+              className="primary"
+              onClick={() => {
+                logout();
+                go("/login", { replace: true });
+              }}
+            >
+              Ha, chiqish
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

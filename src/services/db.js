@@ -1,5 +1,20 @@
 export const KEY = "ai-academy-v1";
 export const uid = () => crypto.randomUUID();
+export const money = (n) => new Intl.NumberFormat("uz-UZ").format(n) + " so‘m";
+export const localDate = () => {
+  const d = new Date();
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
+};
+export function integer(value, min = 0) {
+  const n = Number(value);
+  if (value === "" || !Number.isSafeInteger(n) || n < min || n > 1e12)
+    throw Error("Miqdorni to‘g‘ri butun son sifatida kiriting.");
+  return n;
+}
 export const seed = {
   courses: [
     {
@@ -101,31 +116,96 @@ export const seed = {
   payments: [],
   testSessions: {},
 };
+
+export function migrate(input) {
+  const d = { ...structuredClone(seed), ...input };
+  d.courses ??= structuredClone(seed.courses);
+  d.payments ??= [];
+  d.testSessions ??= {};
+  d.certificates ??= [];
+  d.lessons = d.lessons.map((l) => ({
+    courseId: "course-ai",
+    materials: [],
+    ...l,
+  }));
+  if (!Array.isArray(d.enrollments))
+    d.enrollments = d.users
+      .filter((u) => u.role === "student")
+      .map((u) => ({
+        id: u.id + ":" + (u.courseId || "course-ai"),
+        userId: u.id,
+        courseId: u.courseId || "course-ai",
+        fee: Number(
+          u.courseFee ??
+            d.courses.find((c) => c.id === (u.courseId || "course-ai"))
+              ?.price ??
+            0,
+        ),
+        createdAt: u.createdAt || new Date().toISOString(),
+      }));
+  d.payments = d.payments.map((a) => ({
+    ...a,
+    courseId:
+      a.courseId ||
+      d.users.find((u) => u.id === a.userId)?.courseId ||
+      "course-ai",
+  }));
+  d.attempts = d.attempts.map((a) => ({
+    ...a,
+    courseId:
+      a.courseId ||
+      d.lessons.find((l) => l.id === a.lessonId)?.courseId ||
+      "course-ai",
+  }));
+  d.submissions = d.submissions.map((a) => ({
+    ...a,
+    courseId:
+      a.courseId ||
+      d.lessons.find((l) => l.id === a.lessonId)?.courseId ||
+      "course-ai",
+    reviews: a.reviews || [],
+    lessonTitle:
+      a.lessonTitle ||
+      d.lessons.find((l) => l.id === a.lessonId)?.title ||
+      "Eski dars",
+  }));
+  d.schemaVersion = 4;
+  return d;
+}
 export function read() {
+  const raw = localStorage.getItem(KEY);
+  if (!raw) return migrate(structuredClone(seed));
+  let value;
   try {
-    const d = JSON.parse(localStorage.getItem(KEY));
-    if (!d?.users || !d?.lessons) return structuredClone(seed);
-    return {
-      ...structuredClone(seed),
-      ...d,
-      courses: d.courses || structuredClone(seed.courses),
-      users: d.users.map((u) =>
-        u.role === "student" ? { courseId: "course-ai", ...u } : u,
-      ),
-      lessons: d.lessons.map((l) => ({ courseId: "course-ai", ...l })),
-      payments: d.payments || [],
-      testSessions: d.testSessions || {},
-    };
+    value = JSON.parse(raw);
   } catch {
-    return structuredClone(seed);
+    throw Error(
+      "Saqlangan ma’lumot buzilgan. Brauzer ma’lumotlarini o‘chirmang; zaxiradan tiklang.",
+    );
   }
+  if (!Array.isArray(value.users) || !Array.isArray(value.lessons))
+    throw Error("Ma’lumot tuzilmasi noto‘g‘ri.");
+  return migrate(value);
 }
 export function write(d) {
   localStorage.setItem(KEY, JSON.stringify(d));
 }
-// Test sharti: aynan 70% yetarli emas. Xom nisbat bo‘yicha tekshiriladi.
+export function enrollmentsFor(d, userId) {
+  return d.enrollments.filter((e) => e.userId === userId);
+}
+export function hasCourse(d, userId, courseId) {
+  return d.enrollments.some(
+    (e) => e.userId === userId && e.courseId === courseId,
+  );
+}
+export function studentLessons(d, userId, courseId) {
+  const ids = enrollmentsFor(d, userId).map((e) => e.courseId);
+  return d.lessons.filter(
+    (l) => ids.includes(l.courseId) && (!courseId || l.courseId === courseId),
+  );
+}
 export function attemptPassed(a) {
-  return Number.isInteger(a.correctCount) && a.total > 0
+  return a.total > 0 && Number.isInteger(a.correctCount)
     ? a.correctCount * 100 > a.total * 70
     : a.score > 70;
 }
@@ -134,21 +214,25 @@ export function passed(d, userId, lessonId) {
     (a) => a.userId === userId && a.lessonId === lessonId && attemptPassed(a),
   );
 }
-export function completed(d, userId, lessonId) {
-  return passed(d, userId, lessonId);
-}
+export const completed = passed;
 export function unlocked(d, userId, lessonId) {
-  const list = studentLessons(d, userId).filter((l) => l.published);
-  const index = list.findIndex((l) => l.id === lessonId);
-  return (
-    index >= 0 && list.slice(0, index).every((l) => passed(d, userId, l.id))
+  const lesson = d.lessons.find((l) => l.id === lessonId);
+  if (!lesson || !lesson.published || !hasCourse(d, userId, lesson.courseId))
+    return false;
+  const list = d.lessons.filter(
+    (l) => l.courseId === lesson.courseId && l.published,
   );
+  return list
+    .slice(
+      0,
+      list.findIndex((l) => l.id === lessonId),
+    )
+    .every((l) => passed(d, userId, l.id));
 }
 export function gradeAttempt(session, answers) {
-  const questions = session.questions;
-  if (!questions.length) throw Error("Test savollari yo‘q.");
+  if (!session.questions.length) throw Error("Savollar yo‘q.");
   if (
-    questions.some(
+    session.questions.some(
       (q) =>
         !Number.isInteger(answers[q.id]) ||
         answers[q.id] < 0 ||
@@ -156,37 +240,223 @@ export function gradeAttempt(session, answers) {
     )
   )
     throw Error("Barcha savollarga javob bering.");
-  const correctCount = questions.filter(
+  const correctCount = session.questions.filter(
     (q) => answers[q.id] === q.correct,
   ).length;
   return {
     ...session,
     answers: { ...answers },
-    total: questions.length,
     correctCount,
-    score: (correctCount / questions.length) * 100,
+    total: session.questions.length,
+    score: (correctCount / session.questions.length) * 100,
     createdAt: new Date().toISOString(),
   };
 }
 export function recordAttempt(d, session, answers) {
-  const key = session.userId + ":" + session.lessonId;
   if (d.attempts.some((a) => a.id === session.id)) return;
+  const key = session.userId + ":" + session.lessonId;
   if (d.testSessions[key]?.id !== session.id)
-    throw Error("Test sessiyasi o‘zgargan. Sahifani yangilang.");
+    throw Error("Test sessiyasi o‘zgargan.");
+  if (!unlocked(d, session.userId, session.lessonId))
+    throw Error("Dars yopilgan.");
   d.attempts.push(gradeAttempt(session, answers));
   delete d.testSessions[key];
 }
-export function paymentSummary(d, user) {
-  const paid = (d.payments || [])
-    .filter((x) => x.userId === user.id)
-    .reduce((n, x) => n + Number(x.amount), 0);
-  const fee = Number(user.courseFee) || 0;
+export function enrollmentSummary(d, e) {
+  const paid = d.payments
+    .filter(
+      (p) => p.userId === e.userId && p.courseId === e.courseId && !p.voidedAt,
+    )
+    .reduce((n, p) => n + p.amount, 0);
   return {
-    fee,
+    fee: e.fee,
     paid,
-    debt: Math.max(0, fee - paid),
-    credit: Math.max(0, paid - fee),
+    debt: Math.max(0, e.fee - paid),
+    credit: Math.max(0, paid - e.fee),
   };
+}
+export function paymentSummary(d, user) {
+  return enrollmentsFor(d, user.id).reduce(
+    (out, e) => {
+      const s = enrollmentSummary(d, e);
+      for (const k of Object.keys(out)) out[k] += s[k];
+      return out;
+    },
+    { fee: 0, paid: 0, debt: 0, credit: 0 },
+  );
+}
+export function saveStudent(d, draft, selected) {
+  const email = draft.email.trim().toLowerCase(),
+    name = draft.name.trim();
+  if (
+    name.length < 3 ||
+    !/^\S+@\S+\.\S+$/.test(email) ||
+    draft.password.length < 8
+  )
+    throw Error("Ism, email va kamida 8 belgili parol kiriting.");
+  if (d.users.some((u) => u.id !== draft.id && u.email.toLowerCase() === email))
+    throw Error("Email band.");
+  const ids = [...new Set(selected)];
+  if (!ids.length || ids.some((id) => !d.courses.some((c) => c.id === id)))
+    throw Error("Kamida bitta mavjud kursni tanlang.");
+  for (const e of enrollmentsFor(d, draft.id).filter(
+    (e) => !ids.includes(e.courseId),
+  )) {
+    if (
+      d.payments.some(
+        (p) => p.userId === draft.id && p.courseId === e.courseId,
+      ) ||
+      d.attempts.some(
+        (a) => a.userId === draft.id && a.courseId === e.courseId,
+      ) ||
+      d.submissions.some(
+        (a) => a.userId === draft.id && a.courseId === e.courseId,
+      ) ||
+      d.certificates.some(
+        (c) => c.userId === draft.id && c.courseId === e.courseId,
+      ) ||
+      d.lessons.some(
+        (l) =>
+          l.courseId === e.courseId && d.progress[draft.id]?.[l.id]?.watched,
+      )
+    )
+      throw Error("Tarixi yoki to‘lovi bor kursni olib tashlab bo‘lmaydi.");
+  }
+  d.enrollments = d.enrollments.filter(
+    (e) => e.userId !== draft.id || ids.includes(e.courseId),
+  );
+  for (const id of ids)
+    if (!hasCourse(d, draft.id, id))
+      d.enrollments.push({
+        id: uid(),
+        userId: draft.id,
+        courseId: id,
+        fee: integer(d.courses.find((c) => c.id === id).price),
+        createdAt: new Date().toISOString(),
+      });
+  const old = d.users.find((u) => u.id === draft.id);
+  const value = { ...draft, name, email, role: "student" };
+  if (old) Object.assign(old, value);
+  else d.users.push(value);
+}
+export function addPayment(d, p) {
+  if (d.payments.some((x) => x.id === p.id)) return;
+  const e = d.enrollments.find(
+    (e) => e.userId === p.userId && e.courseId === p.courseId,
+  );
+  if (!e) throw Error("Talaba kursga biriktirilmagan.");
+  const amount = integer(p.amount, 1);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(p.date) ||
+    p.date > localDate() ||
+    new Date(p.date + "T00:00:00Z").toISOString().slice(0, 10) !== p.date
+  )
+    throw Error("To‘lov sanasi noto‘g‘ri.");
+  if (amount > enrollmentSummary(d, e).debt)
+    throw Error("To‘lov qolgan qarzdan oshmasligi kerak.");
+  d.payments.push({ ...p, amount, createdAt: new Date().toISOString() });
+}
+export function submitPractice(d, s) {
+  if (d.submissions.some((x) => x.id === s.id)) return;
+  if (!unlocked(d, s.userId, s.lessonId))
+    throw Error("Darsga kirish yopilgan.");
+  if (s.answer.trim().length < 5) throw Error("Kamida 5 belgi yozing.");
+  if (
+    d.submissions.some(
+      (x) =>
+        x.userId === s.userId &&
+        x.lessonId === s.lessonId &&
+        x.status === "pending",
+    )
+  )
+    throw Error("Oldingi vazifa tekshirilmoqda.");
+  d.submissions.push({
+    ...s,
+    answer: s.answer.trim(),
+    status: "pending",
+    reviews: [],
+    createdAt: new Date().toISOString(),
+  });
+}
+export function reviewPractice(d, id, status, grade, feedback, adminId) {
+  if (!["approved", "rejected"].includes(status))
+    throw Error("Natija holati noto‘g‘ri.");
+  const s = d.submissions.find((s) => s.id === id);
+  if (!s || s.status !== "pending")
+    throw Error("Bu vazifa avval tekshirilgan.");
+  const score = integer(grade);
+  if (score > 100) throw Error("Baho 0–100 oralig‘ida bo‘lsin.");
+  Object.assign(s, {
+    status,
+    grade: score,
+    feedback,
+    reviewedAt: new Date().toISOString(),
+  });
+  s.reviews.push({
+    status,
+    grade: score,
+    feedback,
+    adminId,
+    createdAt: s.reviewedAt,
+  });
+}
+export function courseResult(d, userId, courseId) {
+  const lessons = d.lessons.filter(
+    (l) => l.courseId === courseId && l.published,
+  );
+  const scores = lessons.map((l) =>
+    Math.max(
+      0,
+      ...d.attempts
+        .filter((a) => a.userId === userId && a.lessonId === l.id)
+        .map((a) => a.score),
+    ),
+  );
+  const tests = lessons.filter((l) => passed(d, userId, l.id)).length;
+  const watched = lessons.filter(
+    (l) => d.progress[userId]?.[l.id]?.watched,
+  ).length;
+  const practical = lessons.filter((l) =>
+    d.submissions.some(
+      (s) =>
+        s.userId === userId && s.lessonId === l.id && s.status === "approved",
+    ),
+  ).length;
+  return {
+    lessons,
+    tests,
+    watched,
+    practical,
+    average: scores.length
+      ? scores.reduce((a, b) => a + b, 0) / scores.length
+      : 0,
+    ready:
+      hasCourse(d, userId, courseId) &&
+      lessons.length > 0 &&
+      tests === lessons.length &&
+      watched === lessons.length &&
+      practical === lessons.length,
+  };
+}
+export function issueCertificate(d, userId, courseId) {
+  const existing = d.certificates.find(
+    (c) => c.userId === userId && c.courseId === courseId,
+  );
+  if (existing) return existing;
+  const r = courseResult(d, userId, courseId);
+  if (!r.ready) throw Error("Kurs shartlari hali bajarilmagan.");
+  const cert = {
+    id: uid(),
+    userId,
+    courseId,
+    name: d.users.find((u) => u.id === userId).name,
+    title: d.courses.find((c) => c.id === courseId).title,
+    score: r.average,
+    createdAt: new Date().toISOString(),
+    lessonCount: r.lessons.length,
+  };
+  d.certificates.push(cert);
+  return cert;
 }
 const open = () =>
   new Promise((res, rej) => {
@@ -226,9 +496,15 @@ export async function getFile(id) {
   });
 }
 
-export function studentLessons(d, userId) {
-  const user = d.users.find((u) => u.id === userId);
-  return user?.courseId
-    ? d.lessons.filter((l) => l.courseId === user.courseId)
-    : [];
+export async function downloadMaterial(m) {
+  const blob = await getFile(m.fileId);
+  if (!blob) throw Error("Fayl shu brauzerda topilmadi. Admin qayta yuklasin.");
+  const url = URL.createObjectURL(blob),
+    a = document.createElement("a");
+  a.href = url;
+  a.download = m.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
 }

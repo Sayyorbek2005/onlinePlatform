@@ -1,105 +1,101 @@
-# AI Academy — React o‘quv platformasi
+# AI Academy — CRA v4.1
 
-Create React App (react-scripts 5), React 18 va react-router-dom bilan tayyorlangan to‘liq loyiha. Har bir sahifaning JSX va CSS fayllari alohida. Admin sahifalari umumiy Admin.css dan foydalanadi.
+React 18, Create React App, react-router-dom. Admin va o‘quvchi platformasi. JSX va CSS alohida.
 
-## 1. Ishga tushirish
+## Ishga tushirish
 
-Node.js 22+ o‘rnating. ZIPni oching va loyiha katalogida:
+Node.js 22+ bilan papkada:
 
 ```bash
 npm install
 npm start
 ```
 
-Terminaldagi local manzilni brauzerda oching.
+Build: `npm run build`. Vercel framework: Create React App. Build command: `npm run build`. Output: `build`. `vercel.json` ichida SPA rewrite bor.
+
+Avvalgi loyiha bo‘lsa, zaxiralang. Ushbu ZIPdagi `src`, `public`, `package.json`, `package-lock.json` va `vercel.json` bilan yangilang; keyin `npm install`. Faqat src almashtirish yetarli emas: PDF uchun jspdf qo‘shildi. O‘z .env faylingizni saqlang. node_modules/build ZIPda yo‘q, buyruqlar ularni yaratadi.
+
+## Hisoblar
+
+- Admin: admin@academy.uz / Admin123!
+- O‘quvchi: student@academy.uz / Student123!
+
+Log out yuqorida, ikkala rolda ham. “Ha, chiqish” tasdiq bo‘lsa sessiya o‘chadi. Refresh sessiyani saqlaydi. “Meni eslab qolish” belgilanmasa sessiya faqat shu tab muddati uchun.
+
+## Kurslar va talabalar
+
+Admin → Kurslar va darslar → Yangi kurs: nom, butun so‘mdagi narx, tavsif. Narx o‘zgarsa avval sotilgan kurslar narxi o‘zgarmaydi.
+
+Talabalar → Talaba qo‘shish yoki Tahrirlash: bir nechta kursni CHECKBOX bilan tanlang. Har bir talaba–kurs uchun alohida kelishilgan narx saqlanadi. Talaba ismi uning alohida sahifasiga olib kiradi. U yerda kurslar, to‘lovlar, qarz, videolar, barcha test urinishlari, amaliy natijalar va berilgan sertifikatlar bor.
+
+Tarixi yoki to‘lovi bor kursni talaba hisobidan olib tashlash bloklangan. Kursni almashtirish o‘rniga qo‘shimcha kurs biriktiring. Bunday cheklov tarix va to‘lovlar yo‘qolishining oldini oladi. Hisobni bloklash mumkin. Talabalarni doimiy o‘chirish tugmasi bu versiyada olib tashlangan.
+
+O‘quvchi → Mening kurslarim: barcha sotib olingan kurslar kartalari va menyu ostidagi kurslar. Har bir kursning darslari, progressi va sertifikati mustaqil.
+
+## Moliya
+
+- Jami talabalar, shartnoma qiymati, qilingan to‘lov, qarzdorlar soni, qarz va eski ortiqcha to‘lov.
+- Qarzdorlar kartasi barcha qarzdorlarni ko‘rsatadi; ism bosilsa shaxsiy sahifa ochiladi.
+- Kurs bo‘yicha sotuv, to‘lov va qarz statistikasi.
+- Sanalar bo‘yicha to‘lovlar tarixi va davr summasi.
+- To‘lovda talaba VA kurs tanlanadi. Miqdor musbat butun so‘m, sanasi bugundan keyin emas, qolgan qarzdan oshmasligi kerak.
+- To‘lovni talabalar sahifasida sabab bilan BEKOR qilish mumkin. Yozuv tarixda qoladi, moliyaviy summadan chiqariladi. Bu bank orqali pul qaytarish emas.
+- Bir kursdagi ortiqcha to‘lov boshqa kursning qarzini avtomatik yopmaydi.
+- Yozuvlar qo‘lda kiritiladi. Click/Payme yoki bank integratsiyasi yo‘q.
+
+## Darslar va tarix
+
+Darsda uchta tab: Test, Amaliy, Qo‘shimcha materiallar.
+
+Admin video (200 MB gacha) yoki HTTPS MP4/WebM URL kiritadi. Qo‘shimcha materiallar: PDF, XLS, XLSX; har biri 20 MB gacha, bir nechta tanlash mumkin. O‘quvchi ularni materiallar tabidan yuklab oladi. Brauzer kvotasi fayllar umumiy hajmini cheklashi mumkin.
+
+Keyingi dars shu kursdagi oldingi faol darslarning testidan qat’iy 70% DAN YUQORI natijada ochiladi. Aynan 70% yetmaydi. Boshqa kurs progressi aralashmaydi.
+
+Test topshirilgach natija/javoblar tahrirlanmaydi. Boshidan qayta boshlash yangi urinish yaratadi; barcha urinishlar tarixda qoladi. Boshlangan testdagi savollar nusxasi va tanlovlar refreshdan keyin saqlanadi. Admin testni o‘zgartirsa eski natijalar o‘zgarmaydi.
+
+Amaliy topshiriq matni va ixtiyoriy PDF/Excel/rasm ilova (20 MB gacha). Tekshirish kutilayotgan vaqtda takror topshirish bloklanadi. Admin 0–100 baho, tasdiqlash/qaytarish va izoh beradi. Tekshirilgan natija o‘zgartirilmaydi. Yangi topshirish eski natijani almashtirmaydi.
+
+Darsni o‘chirish amali arxivlaydi, faolligini o‘chiradi; test, amaliy va video tarixi qoladi. Faollash arxivdan qaytaradi. Saqlangan darsni boshqa kursga ko‘chirish bloklangan, chunki natijalar kursga tegishli.
+
+## Sertifikat
+
+Har bir kurs bo‘yicha barcha faol dars videolari yakunlangan, testlar >70% va amaliy ishlar tasdiqlangan bo‘lsa ochiladi. Yakuniy baho — kursdagi har bir darsning eng yaxshi test natijalarining oddiy o‘rtachasi. PDF birinchi yuklanganda ism, kurs nomi, yakuniy baho, sana va ID bilan berilgan sertifikat saqlanadi. Keyingi yuklashlar aynan shu natijani beradi. Admin talaba sahifasida ham ko‘radi/yuklaydi. Bu ta’lim platformasining sertifikati, davlat akkreditatsiyasi yoki tashqi verifikatsiya emas.
+
+## Dizayn
+
+`src/index.css` ning `:root` qismida barcha ranglar, fonlar, shrift o‘lchamlari bor. `--primary: #080acd`. Eng kichik matn — 18px. PDF typography tokenlari ham shu yerda. Header panelda fixed, mobil menyu alohida ochiladi. Sahifaviy CSS fayllari saqlangan, umumiy komponent stillari index.css da.
+
+## Saqlash va cheklovlar
+
+Supabase HALI ULANMAGAN. Matnli ma’lumotlar localStorage, fayllar IndexedDBda. Eski v1–v3 hisoblar bir martalik moslashtirish orqali enrollment modeliga o‘tadi; bir xil brauzer va saytda ma’lumotlar saqlanadi. Yangi domen/brauzerga avtomatik ko‘chmaydi. Eski natijalarda savol nusxalari yoki amaliy baho saqlanmagan bo‘lsa, tafsilot “—” bo‘lishi mumkin. O‘tmishdagi, avval o‘chirilgan tarix tiklanmaydi.
+
+Bu demo: parollar va test javoblari clientda; rollar va baholash server xavfsizligiga ega emas. Haqiqiy o‘quvchilar va to‘lovlar uchun Supabase Auth/RLS, serverda baholash va private Storage ulanishi kerak. .env ni to‘ldirishning o‘zi backendni ulab bermaydi.
+
+Video download tugmasi/PiP cheklangan va ism/email watermark bor. Oddiy brauzerda screenshot, screen recording yoki faylni texnik vositalar bilan olishni mutlaq bloklab bo‘lmaydi. PDF/Excel uchun yuklash ruxsat etilgan.
+
+## Tekshiruv
 
 ```bash
+npm run test:domain
+npm test -- --watch=false --runInBand
 npm run build
-npx serve -s build
 ```
 
-Vercel: Build Command `npm run build`, Output Directory `build`. BrowserRouter sahifalarini yangilash uchun vercel.json ichida rewrite mavjud. Boshqa hostingda barcha route'larni index.html ga yo‘naltiring.
+46 domen tekshiruvi: ko‘p kurs, to‘lovlar, qarzdorlik, izolyatsiya, o‘zgarmas test/amaliy tarix, sertifikat va migratsiya.
+7 React komponent testi: chiqishni tasdiqlash/inkor, ikki kursli talaba yaratish va shaxsiy sahifaga o‘tish, darsdagi 3 tab, qarzdorlar ro‘yxati, admin logout.
+Production build tekshirildi. Haqiqiy browser/device vizual QA, video playback, IndexedDB upload/download va PDF yuklashni brauzerda tekshirish bu muhitda bajarilmadi. “100% xatosiz” kafolati berilmaydi.
 
-## 2. Demo hisoblar
+`TOLIQ-KODLAR.md` ichida barcha src fayllari to‘liq, alohida sarlavhalar bilan berilgan.
 
-| Rol | Email | Parol |
-| --- | --- | --- |
-| Admin | admin@academy.uz | Admin123! |
-| O‘quvchi | student@academy.uz | Student123! |
+## Dashboard yangilanishi (v4.1)
 
-Login sahifasida demo rol tugmasi maydonlarni to‘ldiradi. Kirish tugmasini bosing. Rolni foydalanuvchi o‘zi tanlab o‘zgartirmaydi; u hisobdan olinadi. Admin yangi o‘quvchilarni yaratadi.
+Dashboardda To‘lov qo‘shish tugmasi modal ochadi. Talaba, kurs, summa, sana va usulni tanlang. Saqlangach oyna yopiladi, dashboard va moliya summalari yangilanadi. Bu to‘lovni qayd etish, bankdan pul yechish emas.
 
-## 3. Fayllarni o‘rganish tartibi
+Kurslar tugmasi va dashboarddagi Kurslar kartasi qidiruvli modal ochadi. Kurs nomi, narxi, talabalar va darslar soni kartalarda ko‘rinadi. Shu oynada kurs yaratish va tahrirlash mumkin.
 
-1. package.json — paketlar va buyruqlar.
-2. src/index.jsx — React, BrowserRouter, AppProvider.
-3. src/services/db.js — boshlang‘ich ma’lumot, progress qoidalari, IndexedDB videolar.
-4. src/context/AppContext.jsx — sessiya va ma’lumotlar holati.
-5. src/App.jsx — marshrutlar va rolga qarab yo‘naltirish.
-6. src/components/Layout.jsx + Layout.css — sidebar, navigatsiya, umumiy layout.
-7. src/pages/Login.jsx + Login.css — kirish.
-8. src/pages/Course.jsx + Course.css — kurs va ketma-ket darslar.
-9. src/pages/Lesson.jsx + Lesson.css — video, vazifa, test.
-10. src/pages/Certificate.jsx + Certificate.css — sertifikat va PDFga chop etish.
-11. src/pages/Support.jsx + Support.css — murojaatlar, javoblar, FAQ.
-12. src/pages/Admin.jsx — statistika va o‘quvchilar progressi.
-13. src/pages/AdminLessons.jsx — dars CRUD, tartiblash, e’lon qilish, video yuklash, test muharriri.
-14. src/pages/AdminStudents.jsx — hisob yaratish, qidirish, tahrirlash, bloklash va o‘chirish.
-15. src/pages/AdminReviews.jsx — vazifalarni tasdiqlash/qaytarish, izoh.
-16. src/pages/AdminSupport.jsx — murojaatlarga javoblar.
-17. src/pages/Admin.css — admin bo‘limlarining umumiy stili.
-18. src/index.css — umumiy ranglar, tugmalar, formalar, responsive qoidalar.
-19. src/services/supabase.js + .env.example — keyingi Supabase bosqichi uchun mijoz tayyorlash.
+V4 dan o‘tishda faqat quyidagi fayllar yangilanadi:
+- src/pages/Admin.jsx
+- src/components/CourseManager.jsx
+- src/components/CourseManager.css (yangi fayl)
 
-## 4. Ishlash tartibi
-
-- Admin bilan kiring → Darslar va testlar → darsni tahrirlang → MP4/WebM yuklang yoki to‘g‘ridan-to‘g‘ri HTTPS video fayl URL kiriting. YouTube sahifa havolasi ishlatilmaydi.
-- Demo bilan tayyor o‘quv videolari kelmaydi. Matnlar va testlar namuna; o‘z kurs materiallaringizni yuklang. Video yuklash chegarasi 200 MB; brauzer kvotasi kamroq bo‘lishi mumkin.
-- Birinchi dars ochiq. Keyingi dars uchun oldingi barcha faol darslarda: testdan 70% dan yuqori natija talab qilinadi. Test bo‘lmasa keyingi dars yopiq qoladi; admin test kiritishi kerak.
-- O‘quvchi javob yuboradi → chiqadi → admin vazifani tekshiradi → o‘quvchi qayta kirib yangilangan progressni ko‘radi.
-- Barcha e’lon qilingan darslar yakunlangach, sertifikat ochiladi. PDF saqlash tizimning chop etish oynasi orqali bajariladi. Bu demo sertifikat, rasmiy verifikatsiya emas.
-- Qo‘llab-quvvatlashda yuborilgan savol admin panelida ko‘rinadi; javob o‘quvchi sahifasida chiqadi.
-- Hisob va dars o‘chirishdan oldin tasdiq so‘raladi. O‘chirishga tegishli natijalar ham o‘chiriladi.
-
-## 5. Hozirgi demo chegaralari
-
-Supabase hali ULANMAGAN. .env ni to‘ldirishning o‘zi demo repositoryni almashtirmaydi.
-
-Matnlar localStorage, videolar IndexedDB, sessiya localStorage yoki sessionStorage da saqlanadi. Bu bir brauzer uchun funksional prototip; boshqa qurilmalar va ochiq tablar orasida sinxronlash yo‘q. Brauzer ma’lumotlarini tozalash saqlangan ma’lumotlarni yo‘qotadi.
-
-Demo parollar ochiq ko‘rinishda clientda saqlanadi, test javoblari ham clientda bor. Frontend rol tekshiruvi server xavfsizligi emas. Haqiqiy parollar yoki maxfiy o‘quvchi ma’lumotlarini demo rejimiga kiritmang. Video yakuni oddiy playback hodisasi orqali belgilanadi; imtihon nazorati/DRM yo‘q.
-
-## 6. Supabase ulash — keyingi bosqich
-
-1. Supabase project yarating; Auth email/password yoqing.
-2. `.env.example` ni `.env` ga ko‘chiring, URL va publishable key kiriting. Secret/service_role key frontendga qo‘yilmaydi.
-3. profiles (Auth UUID, name, role, active), lessons, questions, progress, submissions, attempts, tickets jadvallarini yarating.
-4. Barcha jadvallarda RLS: o‘quvchi faqat o‘z progress/vazifa/natija/murojaatlarini ko‘radi; admin boshqaradi. Rol o‘zgartirishni foydalanuvchiga ruxsat bermang.
-5. Video uchun private Storage bucket, admin upload policy va authorized signed URL yarating.
-6. Loginni signInWithPassword, sessiyani onAuthStateChange bilan almashtiring. Demo repository o‘rniga asinxron Supabase CRUD adapterini ulang.
-7. O‘quvchi yaratish/parol tiklashni himoyalangan Edge Function yoki admin backend orqali bajaring.
-8. Test javoblarini va baholashni serverda saqlang; sertifikat shartlarini serverda tekshiring.
-9. Haqiqiy ikki hisob bilan RLS, rol, Storage va progressni alohida sinang.
-
-API manbalari: https://reactrouter.com/start/declarative/routing va https://supabase.com/docs/reference/javascript/initializing
-
-## 7. Tekshiruv
-
-Production build muvaffaqiyatli o‘tdi. Progress talablari, qat’iy >70% chegarasi, dars ketma-ketligi, vazifa rad etilishi va o‘quvchilar ajratilishi Node assertion orqali tekshirildi. Ushbu muhitda interaktiv brauzer QA bajarilmadi; video yuklash/playback va responsive ko‘rinishni o‘z brauzeringizda tekshiring.
-
-## GitHub va Vercel
-
-GitHubda yangi bo‘sh repository yarating. Papkada terminal oching:
-
-```bash
-git init
-git add .
-git commit -m "Initial AI Academy CRA project"
-git branch -M main
-git remote add origin https://github.com/USERNAME/REPOSITORY.git
-git push -u origin main
-```
-
-USERNAME/REPOSITORY qismini o‘zingiznikiga almashtiring. Vercelda Add New Project → GitHub repository → Import. Framework: Create React App; Build: npm run build; Output: build. Deploy tugmasini bosing. .env fayli GitHubga yuborilmaydi. Supabase keyingi bosqichda ulanadi.
-
-ZIP ichida node_modules va build yo‘q — npm install va npm run build ularni yaratadi. Ushbu CRA nusxasini o‘zingiz deploy qilasiz.
+Qo‘shimcha paket kerak emas. Build va 7 interfeys testi muvaffaqiyatli o‘tgan.

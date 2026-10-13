@@ -14,16 +14,19 @@ const blank = () => ({
   fileId: "",
   published: false,
   questions: [],
+  materials: [],
 });
 export default function AdminLessons() {
   const { data, update, notify } = useApp();
   const [draft, setDraft] = useState(null);
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [materials, setMaterials] = useState([]);
   const [error, setError] = useState("");
   function edit(l) {
     setDraft(structuredClone(l));
     setFile(null);
+    setMaterials([]);
     setError("");
   }
   function field(k, v) {
@@ -59,6 +62,24 @@ export default function AdminLessons() {
       setError("Faol dars uchun kamida bitta test savoli kiriting.");
       return;
     }
+    if (
+      !draft.title.trim() ||
+      !draft.task.trim() ||
+      draft.questions.some(
+        (q) => !q.text.trim() || q.options.some((o) => !o.trim()),
+      )
+    ) {
+      setError("Bo‘sh matn yoki javoblarni to‘ldiring.");
+      return;
+    }
+    if (
+      materials.some(
+        (f) => !/\.(pdf|xlsx?)$/i.test(f.name) || f.size > 20 * 1024 * 1024,
+      )
+    ) {
+      setError("PDF yoki Excel fayl tanlang (har biri 20 MB gacha).");
+      return;
+    }
     setBusy(true);
     try {
       const next = {
@@ -70,13 +91,22 @@ export default function AdminLessons() {
         next.fileId = await putFile(file);
         next.video = "";
       }
-      update((d) => {
+      next.materials = [...(draft.materials || [])];
+      for (const file of materials)
+        next.materials.push({
+          fileId: await putFile(file),
+          name: file.name,
+          size: file.size,
+        });
+      const ok = update((d) => {
         const i = d.lessons.findIndex((l) => l.id === next.id);
         if (i < 0) d.lessons.push(next);
         else d.lessons[i] = next;
       });
-      setDraft(null);
-      notify("Dars saqlandi.");
+      if (ok) {
+        setDraft(null);
+        notify("Dars saqlandi.");
+      }
     } catch {
       setError(
         "Fayl saqlanmadi. Brauzer xotirasi yoki fayl hajmini tekshiring.",
@@ -87,17 +117,22 @@ export default function AdminLessons() {
   }
   function remove(l) {
     if (
-      !confirm("“" + l.title + "” darsi o‘chirilsinmi? Test tarixi saqlanadi.")
+      !confirm(
+        "“" +
+          l.title +
+          "” darsi arxivlansinmi? Barcha natijalar tarixi saqlanadi.",
+      )
     )
       return;
     update((d) => {
-      d.lessons = d.lessons.filter((x) => x.id !== l.id);
-      d.submissions = d.submissions.filter((x) => x.lessonId !== l.id);
+      const item = d.lessons.find((x) => x.id === l.id);
+      item.published = false;
+      item.archived = true;
       // Topshirilgan testlar tarixini saqlab qolamiz.
       Object.keys(d.testSessions).forEach((k) => {
         if (d.testSessions[k].lessonId === l.id) delete d.testSessions[k];
       });
-      Object.values(d.progress).forEach((p) => delete p[l.id]);
+      // Video, test va amaliy ishlar tarixi saqlanadi.
     });
   }
   function move(i, by) {
@@ -140,7 +175,7 @@ export default function AdminLessons() {
                 {l.fileId || l.video ? "Video bor" : "Video yo‘q"}
               </p>
               <span className={"badge " + (l.published ? "green" : "")}>
-                {l.published ? "Faol" : "Nofaol"}
+                {l.archived ? "Arxivda" : l.published ? "Faol" : "Nofaol"}
               </span>
             </div>
             <div className="actions">
@@ -154,6 +189,7 @@ export default function AdminLessons() {
                   update((d) => {
                     const item = d.lessons.find((x) => x.id === l.id);
                     item.published = !item.published;
+                    if (item.published) item.archived = false;
                   });
                 }}
               >
@@ -211,6 +247,7 @@ export default function AdminLessons() {
                 Kurs
                 <select
                   required
+                  disabled={data.lessons.some((l) => l.id === draft.id)}
                   value={draft.courseId || ""}
                   onChange={(e) => field("courseId", e.target.value)}
                 >
@@ -306,6 +343,32 @@ export default function AdminLessons() {
                   onChange={(e) => field("task", e.target.value)}
                 />
               </label>
+              <label>
+                Qo‘shimcha materiallar (PDF, Excel; har biri 20 MB gacha)
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.xls,.xlsx"
+                  onChange={(e) => setMaterials(Array.from(e.target.files))}
+                />
+              </label>
+              {(draft.materials || []).map((m) => (
+                <div className="material-row" key={m.fileId}>
+                  <span>{m.name}</span>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() =>
+                      field(
+                        "materials",
+                        draft.materials.filter((x) => x.fileId !== m.fileId),
+                      )
+                    }
+                  >
+                    Olib tashlash
+                  </button>
+                </div>
+              ))}
               <div className="row">
                 <h3>Test savollari</h3>
                 <button

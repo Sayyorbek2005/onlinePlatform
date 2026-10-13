@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, PlayCircle } from "lucide-react";
+import { PlayCircle } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import {
-  studentLessons,
   getFile,
+  putFile,
   uid,
   unlocked,
-  passed,
   attemptPassed,
   recordAttempt,
+  submitPractice,
+  downloadMaterial,
 } from "../services/db";
 import "./Lesson.css";
 function Player({ lesson, onEnd, watermark }) {
@@ -69,39 +70,40 @@ function Player({ lesson, onEnd, watermark }) {
 
 export default function Lesson() {
   const { id } = useParams();
+  return <LessonContent key={id} id={id} />;
+}
+function LessonContent({ id }) {
   const { data, user, update, notify } = useApp();
-  const [answer, setAnswer] = useState("");
+  const [tab, setTab] = useState("test"),
+    [answer, setAnswer] = useState(""),
+    [attachment, setAttachment] = useState(null),
+    [busy, setBusy] = useState(false);
   const submitting = useRef(false);
-  useEffect(() => {
-    setAnswer("");
-    submitting.current = false;
-  }, [id]);
-  const lesson = data.lessons.find((l) => l.id === id && l.published);
+  const lesson = data.lessons.find((l) => l.id === id);
   if (!lesson || !unlocked(data, user.id, id))
     return (
       <div className="empty">
-        <h2>Dars yopiq yoki mavjud emas</h2>
-        <p>Oldingi faol darslar testidan 70% dan yuqori oling.</p>
-        <Link to="/student">Kursga qaytish</Link>
+        Dars yopiq yoki mavjud emas. <Link to="/student">Kurslarim</Link>
       </div>
     );
-  const key = user.id + ":" + id;
-  const session = data.testSessions[key];
+  const key = user.id + ":" + id,
+    session = data.testSessions[key];
   const attempts = data.attempts.filter(
-    (a) => a.userId === user.id && a.lessonId === id,
-  );
-  const latest = attempts[attempts.length - 1];
-  const sub = data.submissions.find(
-    (s) => s.userId === user.id && s.lessonId === id,
-  );
-  function startTest() {
-    if (!lesson.questions.length) return notify("Admin hali test kiritmagan.");
+      (a) => a.userId === user.id && a.lessonId === id,
+    ),
+    latest = attempts[attempts.length - 1],
+    practices = data.submissions.filter(
+      (s) => s.userId === user.id && s.lessonId === id,
+    );
+  function start() {
     update((d) => {
       if (d.testSessions[key]) return;
+      if (!lesson.questions.length) throw Error("Test mavjud emas.");
       d.testSessions[key] = {
         id: uid(),
         userId: user.id,
         lessonId: id,
+        courseId: lesson.courseId,
         lessonTitle: lesson.title,
         startedAt: new Date().toISOString(),
         questions: structuredClone(lesson.questions),
@@ -109,87 +111,109 @@ export default function Lesson() {
       };
     });
   }
-  function choose(questionId, value) {
-    update((d) => {
-      if (d.testSessions[key]?.id === session.id)
-        d.testSessions[key].answers[questionId] = value;
-    });
-  }
   function finish(e) {
     e.preventDefault();
-    if (submitting.current || !session) return;
+    if (submitting.current) return;
     submitting.current = true;
-    const ok = update((d) =>
+    update((d) =>
       recordAttempt(d, session, d.testSessions[key]?.answers || {}),
     );
     submitting.current = false;
-    if (ok)
-      notify("Natija saqlandi. Topshirilgan javoblarni o‘zgartirib bo‘lmaydi.");
   }
-  function watchedEnd() {
-    update((d) => {
-      d.progress[user.id] ??= {};
-      d.progress[user.id][id] = {
-        ...d.progress[user.id][id],
-        watched: true,
-        watchedAt: new Date().toISOString(),
-      };
-    });
-  }
-  function submitTask(e) {
+  async function practice(e) {
     e.preventDefault();
-    if (answer.trim().length < 5) return notify("Kamida 5 ta belgi yozing.");
-    const ok = update((d) => {
-      d.submissions = d.submissions.filter(
-        (s) => !(s.userId === user.id && s.lessonId === id),
-      );
-      d.submissions.push({
-        id: uid(),
-        userId: user.id,
-        lessonId: id,
-        answer: answer.trim(),
-        status: "pending",
-        feedback: "",
-        createdAt: new Date().toISOString(),
-      });
-    });
-    if (ok) {
-      setAnswer("");
-      notify("Vazifa yuborildi.");
+    if (busy) return;
+    setBusy(true);
+    try {
+      let material;
+      if (attachment) {
+        if (
+          !/\.(pdf|xlsx?|png|jpe?g)$/i.test(attachment.name) ||
+          attachment.size > 20 * 1024 * 1024
+        )
+          throw Error("PDF, Excel yoki rasm tanlang (20 MB gacha).");
+        material = { fileId: await putFile(attachment), name: attachment.name };
+      }
+      if (
+        update((d) =>
+          submitPractice(d, {
+            id: uid(),
+            userId: user.id,
+            courseId: lesson.courseId,
+            lessonId: id,
+            lessonTitle: lesson.title,
+            answer,
+            attachment: material,
+          }),
+        )
+      ) {
+        setAnswer("");
+        setAttachment(null);
+        notify("Amaliy ish tarixga saqlandi.");
+      }
+    } catch (e) {
+      notify(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function download(m) {
+    try {
+      await downloadMaterial(m);
+    } catch (e) {
+      notify(e.message);
     }
   }
   return (
     <>
-      <Link className="back" to="/student">
-        <ArrowLeft size={15} /> Kursga qaytish
+      <Link className="back" to={"/student/course/" + lesson.courseId}>
+        ← Kursga qaytish
       </Link>
-      <div className="page-heading">
-        <div>
-          <h1>{lesson.title}</h1>
-          <p>{lesson.description}</p>
-        </div>
-        {passed(data, user.id, id) && (
-          <span className="badge green">Testdan o‘tilgan</span>
-        )}
+      <h1>{lesson.title}</h1>
+      <p>{lesson.description}</p>
+      <Player
+        lesson={lesson}
+        watermark={user.name + " · " + user.email}
+        onEnd={() =>
+          update((d) => {
+            d.progress[user.id] ??= {};
+            d.progress[user.id][id] = {
+              watched: true,
+              watchedAt: new Date().toISOString(),
+            };
+          })
+        }
+      />
+      <p>
+        {data.progress[user.id]?.[id]?.watched
+          ? "✓ Video yakunlangan"
+          : "Video oxirigacha ko‘rilgach holat saqlanadi."}
+      </p>
+      <div className="tabs" role="tablist" aria-label="Dars bo‘limlari">
+        {[
+          ["test", "1. Test"],
+          ["practice", "2. Amaliy"],
+          ["materials", "3. Qo‘shimcha materiallar"],
+        ].map(([k, v]) => (
+          <button
+            key={k}
+            role="tab"
+            aria-selected={tab === k}
+            aria-controls={"panel-" + k}
+            className={tab === k ? "active" : ""}
+            onClick={() => setTab(k)}
+          >
+            {v}
+          </button>
+        ))}
       </div>
-      <div className="lesson-columns">
-        <section>
-          <Player
-            key={id}
-            lesson={lesson}
-            onEnd={watchedEnd}
-            watermark={user.name + " · " + user.email}
-          />
-          <p className="small muted">
-            {data.progress[user.id]?.[id]?.watched
-              ? "✓ Video yakunlangan"
-              : "Video oxirida ko‘rilganlik saqlanadi."}
-          </p>
-          <section className="panel task-panel">
-            <h3>Dars testi</h3>
+      <section className="panel task-panel" role="tabpanel" id={"panel-" + tab}>
+        {tab === "test" ? (
+          <>
+            <h2>Bilimingizni tekshiring</h2>
             <p>
-              Keyingi dars uchun natija 70% dan yuqori bo‘lishi kerak. 70%
-              yetarli emas.
+              O‘tish sharti: 70% dan yuqori. Natijalar tahrirlanmaydi; qayta
+              urinish boshidan boshlanadi.
             </p>
             {session ? (
               <form onSubmit={finish}>
@@ -198,118 +222,136 @@ export default function Lesson() {
                     <legend>
                       {i + 1}. {q.text}
                     </legend>
-                    {q.options.map((option, j) => (
+                    {q.options.map((o, j) => (
                       <label className="test-option" key={j}>
                         <input
                           type="radio"
-                          required
                           name={q.id}
+                          required
                           checked={session.answers[q.id] === j}
-                          onChange={() => choose(q.id, j)}
+                          onChange={() =>
+                            update((d) => {
+                              if (d.testSessions[key]?.id === session.id)
+                                d.testSessions[key].answers[q.id] = j;
+                            })
+                          }
                         />
-                        {option}
+                        {o}
                       </label>
                     ))}
                   </fieldset>
                 ))}
-                <button className="primary">Testni yakunlash</button>
+                <button className="primary">Testni topshirish</button>
               </form>
             ) : (
               <>
                 {latest && (
-                  <div className="result">
-                    Oxirgi natija: {latest.score.toFixed(2)}% —{" "}
-                    {attemptPassed(latest) ? "O‘tdingiz" : "O‘tmadingiz"}.
-                    Natija o‘zgartirilmaydi.
-                  </div>
+                  <p className="result">
+                    Oxirgi natija: {latest.score.toFixed(2)}% ·{" "}
+                    {attemptPassed(latest) ? "O‘tdingiz" : "O‘tmadingiz"}
+                  </p>
                 )}
                 <button
                   className="primary"
                   disabled={!lesson.questions.length}
-                  onClick={startTest}
+                  onClick={start}
                 >
-                  {latest
-                    ? "Testni boshidan qayta boshlash"
-                    : "Testni boshlash"}
+                  {latest ? "Testni boshidan boshlash" : "Testni boshlash"}
                 </button>
-                {!lesson.questions.length && (
-                  <p>
-                    Test hali kiritilmagan. Administratorga murojaat qiling.
-                  </p>
-                )}
               </>
             )}
-            {attempts.length > 0 && (
-              <details className="attempt-history">
-                <summary>Urinishlar tarixi ({attempts.length})</summary>
-                {[...attempts].reverse().map((a) => (
-                  <div className="submission" key={a.id}>
-                    <strong>
-                      {a.score.toFixed(2)}% ·{" "}
-                      {attemptPassed(a) ? "O‘tdi" : "O‘tmadi"}
-                    </strong>
-                    <p>{new Date(a.createdAt).toLocaleString("uz-UZ")}</p>
-                    {a.questions?.map((q, i) => (
-                      <p key={q.id}>
-                        {i + 1}. {q.text}
-                        <br />
-                        Javobingiz: {q.options[a.answers?.[q.id]] ?? "—"}
-                      </p>
-                    ))}
-                  </div>
+            <h3>Test tarixi</h3>
+            {[...attempts].reverse().map((a) => (
+              <details key={a.id} className="attempt-detail">
+                <summary>
+                  {a.score.toFixed(2)}% ·{" "}
+                  {new Date(a.createdAt).toLocaleString("uz-UZ")}
+                </summary>
+                {a.questions?.map((q) => (
+                  <p key={q.id}>
+                    {q.text}
+                    <br />
+                    Javobingiz: {q.options[a.answers?.[q.id]] ?? "—"}
+                  </p>
                 ))}
               </details>
-            )}
-          </section>
-          <section className="panel task-panel">
-            <h3>Amaliy vazifa</h3>
+            ))}
+          </>
+        ) : tab === "practice" ? (
+          <>
+            <h2>Amaliy topshiriq</h2>
             <p>{lesson.task}</p>
-            {sub && (
-              <div className="submission">
+            {practices.some((s) => s.status === "pending") ? (
+              <p className="badge">Yuborilgan ish tekshirilmoqda.</p>
+            ) : (
+              <form onSubmit={practice}>
+                <label>
+                  Javobingiz
+                  <textarea
+                    required
+                    minLength={5}
+                    maxLength={10000}
+                    value={answer}
+                    onChange={(e) => setAnswer(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Ilova (ixtiyoriy, 20 MB gacha)
+                  <input
+                    key={attachment?.name || "empty"}
+                    type="file"
+                    accept=".pdf,.xls,.xlsx,.png,.jpg,.jpeg"
+                    onChange={(e) => setAttachment(e.target.files[0] || null)}
+                  />
+                </label>
+                <button className="primary" disabled={busy}>
+                  {busy ? "Saqlanmoqda…" : "Amaliy ishni topshirish"}
+                </button>
+              </form>
+            )}
+            <h3>Amaliy ishlar tarixi</h3>
+            {[...practices].reverse().map((s) => (
+              <article className="submission" key={s.id}>
+                <p>{s.answer}</p>
+                {s.attachment && (
+                  <button
+                    className="secondary"
+                    onClick={() => download(s.attachment)}
+                  >
+                    {s.attachment.name} ↓
+                  </button>
+                )}
+                <p>{new Date(s.createdAt).toLocaleString("uz-UZ")}</p>
                 <strong>
                   {
                     {
                       pending: "Tekshirilmoqda",
-                      approved: "Tasdiqlandi",
-                      rejected: "Qayta ishlash kerak",
-                    }[sub.status]
+                      approved: "Tasdiqlangan",
+                      rejected: "Qaytarilgan",
+                    }[s.status]
                   }
                 </strong>
-                <p>{sub.answer}</p>
-                <p>{sub.feedback}</p>
-              </div>
-            )}
-            {sub?.status !== "approved" && (
-              <form onSubmit={submitTask}>
-                <textarea
-                  required
-                  minLength={5}
-                  maxLength={10000}
-                  aria-label="Vazifa javobi"
-                  value={answer}
-                  onChange={(e) => setAnswer(e.target.value)}
-                />
-                <button className="primary">Vazifani topshirish</button>
-              </form>
-            )}
-          </section>
-        </section>
-        <aside className="panel contents">
-          <h3>Kurs darslari</h3>
-          {studentLessons(data, user.id)
-            .filter((l) => l.published)
-            .map((l, i) => (
-              <div key={l.id} className={l.id === id ? "selected" : ""}>
-                <span>{i + 1}</span>
-                {unlocked(data, user.id, l.id) ? (
-                  <Link to={"/student/lesson/" + l.id}>{l.title}</Link>
-                ) : (
-                  <small>🔒 {l.title}</small>
-                )}
+                <p>Baho: {s.grade ?? "—"} / 100</p>
+                <p>{s.feedback}</p>
+              </article>
+            ))}
+          </>
+        ) : (
+          <>
+            <h2>Qo‘shimcha materiallar</h2>
+            <p>Dars uchun PDF va Excel fayllar.</p>
+            {(lesson.materials || []).map((m) => (
+              <div className="material-row" key={m.fileId}>
+                <span>{m.name}</span>
+                <button className="secondary" onClick={() => download(m)}>
+                  Yuklab olish ↓
+                </button>
               </div>
             ))}
-        </aside>
-      </div>
+            {!lesson.materials?.length && <p>Hozircha material yuklanmagan.</p>}
+          </>
+        )}
+      </section>
     </>
   );
 }

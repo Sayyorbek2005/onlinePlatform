@@ -12,6 +12,7 @@ import AdminStudents from "./pages/AdminStudents";
 import AdminReviews from "./pages/AdminReviews";
 import AdminSupport from "./pages/AdminSupport";
 import StudentDetail from "./pages/StudentDetail";
+import Finance from "./pages/Finance";
 function Protected({ role }) {
   const { user } = useApp();
   if (!user) return <Navigate to="/login" replace />;
@@ -29,8 +30,10 @@ export default function App() {
       <Route element={<Protected role="student" />}>
         <Route path="/student" element={<Layout />}>
           <Route index element={<Course />} />
+          <Route path="course/:courseId" element={<Course />} />
           <Route path="lesson/:id" element={<Lesson />} />
           <Route path="certificate" element={<Certificate />} />
+          <Route path="certificate/:courseId" element={<Certificate />} />
           <Route path="support" element={<Support />} />
         </Route>
       </Route>
@@ -38,6 +41,7 @@ export default function App() {
         <Route path="/admin" element={<Layout />}>
           <Route index element={<Admin />} />
           <Route path="lessons" element={<AdminLessons />} />
+          <Route path="finance" element={<Finance />} />
           <Route path="students" element={<AdminStudents />} />
           <Route path="students/:studentId" element={<StudentDetail />} />
           <Route path="reviews" element={<AdminReviews />} />

@@ -1,18 +1,4 @@
-# Kurslar va talabalar — v3
-
-Admin bosh sahifasi va Darslar sahifasida Yangi dars yonida Yangi kurs mavjud. Kurs nomi, butun so‘mdagi narxi va tavsifini kiriting. Kurslar ro‘yxatidan tahrirlash mumkin. Yangi dars yaratishda kursni tanlang.
-
-O‘quvchi qo‘shishda kursni tanlang: uning kurs narxi shaxsiy to‘lov hisobiga ko‘chadi. Saqlashdan so‘ng /admin/students/:id sahifasi avtomatik ochiladi. Keyin ro‘yxatdagi ismni bosib kirasiz. O‘quvchilar soniga dasturiy limit yo‘q; demo saqlash hajmi brauzer kvotasiga bog‘liq.
-
-Bu versiyada har bir talaba bitta kursga biriktiriladi. Kursdagi darslar va 70% dan yuqori test orqali keyingi darsni ochish boshqa kurslardan ajratilgan. Kurs narxini o‘zgartirish avvalgi talabalar bilan kelishilgan narxni o‘zgartirmaydi. To‘lov yozuvi mavjud talabaning kursini almashtirish bloklangan — to‘lov boshqa kursga tasodifan o‘tmaydi. Shaxsiy sahifada kelishilgan narxni tahrirlash mumkin.
-
-Avvalgi o‘quvchi/darslar avtomatik AI kursiga biriktiriladi, ma’lumotlar o‘chmaydi. Supabase hali ulanmagan, brauzer demo rejimi.
-
-ZIPdagi src papkasini loyihangizdagi src o‘rniga qo‘ying. npm start; deploy: npm run build. Paketlar o‘zgarmagan.
-
-Tekshiruv: CRA production build, no-undef tekshiruvi, kursga kirishni ajratish va eski ma’lumot migratsiyasi. Interaktiv browser QA bajarilmadi.
-
-# Barcha JSX, CSS va JS kodlari
+# AI Academy v4.1 — barcha kodlar
 
 ## src/App.jsx
 
@@ -31,6 +17,7 @@ import AdminStudents from "./pages/AdminStudents";
 import AdminReviews from "./pages/AdminReviews";
 import AdminSupport from "./pages/AdminSupport";
 import StudentDetail from "./pages/StudentDetail";
+import Finance from "./pages/Finance";
 function Protected({ role }) {
   const { user } = useApp();
   if (!user) return <Navigate to="/login" replace />;
@@ -48,8 +35,10 @@ export default function App() {
       <Route element={<Protected role="student" />}>
         <Route path="/student" element={<Layout />}>
           <Route index element={<Course />} />
+          <Route path="course/:courseId" element={<Course />} />
           <Route path="lesson/:id" element={<Lesson />} />
           <Route path="certificate" element={<Certificate />} />
+          <Route path="certificate/:courseId" element={<Certificate />} />
           <Route path="support" element={<Support />} />
         </Route>
       </Route>
@@ -57,6 +46,7 @@ export default function App() {
         <Route path="/admin" element={<Layout />}>
           <Route index element={<Admin />} />
           <Route path="lessons" element={<AdminLessons />} />
+          <Route path="finance" element={<Finance />} />
           <Route path="students" element={<AdminStudents />} />
           <Route path="students/:studentId" element={<StudentDetail />} />
           <Route path="reviews" element={<AdminReviews />} />
@@ -79,125 +69,468 @@ export default function App() {
 
 ```
 
+## src/__tests__/flows.test.jsx
+
+```jsx
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
+import App from "../App";
+import { AppProvider } from "../context/AppContext";
+import { KEY, seed, migrate } from "../services/db";
+jest.mock("../services/certificate", () => ({
+  downloadCertificate: jest.fn().mockResolvedValue(undefined),
+}));
+let host, root, data;
+beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
+  data = migrate(structuredClone(seed));
+  data.courses.push({
+    id: "react",
+    title: "React kursi",
+    price: 500000,
+    description: "React o‘rganish",
+  });
+  host = document.createElement("div");
+  document.body.appendChild(host);
+  root = createRoot(host);
+});
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+});
+function render(route, user = "admin") {
+  localStorage.setItem(KEY, JSON.stringify(data));
+  localStorage.setItem("academy-user", user);
+  act(() =>
+    root.render(
+      <MemoryRouter initialEntries={[route]}>
+        <AppProvider>
+          <App />
+        </AppProvider>
+      </MemoryRouter>,
+    ),
+  );
+}
+function button(text) {
+  const el = [...host.querySelectorAll("button")].find(
+    (e) => e.textContent === text,
+  );
+  if (!el) throw Error("Button not found: " + text);
+  act(() => el.click());
+}
+function input(el, value) {
+  act(() => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    ).set.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+test("both roles confirm log out; cancel preserves session, yes returns to login", () => {
+  render("/student", "student");
+  expect(host.textContent).toContain("Mening kurslarim");
+  button(" Log out");
+  expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+  button("Yo‘q, qolaman");
+  expect(localStorage.getItem("academy-user")).toBe("student");
+  button(" Log out");
+  button("Ha, chiqish");
+  expect(localStorage.getItem("academy-user")).toBeNull();
+  expect(host.textContent).toContain("Tizimga kirish");
+});
+test("admin creates student with two checked courses and opens personal page", () => {
+  render("/admin/students");
+  button("+ Talaba qo‘shish");
+  const dialog = host.querySelector('[role="dialog"]');
+  const fields = dialog.querySelectorAll("input");
+  input(fields[0], "Ikki Kurs Talaba");
+  input(fields[1], "ikki@test.uz");
+  input(fields[2], "Password123");
+  act(() =>
+    dialog.querySelectorAll('input[type="checkbox"]').forEach((c) => c.click()),
+  );
+  act(() =>
+    dialog
+      .querySelector("form")
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+  );
+  expect(host.textContent).toContain("Ma’lumot va kurslarni tahrirlash");
+  const saved = JSON.parse(localStorage.getItem(KEY));
+  const student = saved.users.find((u) => u.email === "ikki@test.uz");
+  expect(saved.enrollments.filter((e) => e.userId === student.id)).toHaveLength(
+    2,
+  );
+  expect(host.textContent).toContain("React kursi");
+});
+test("student sees only enrolled courses; lesson has three tabs", () => {
+  render("/student/lesson/lesson-0", "student");
+  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  button("3. Qo‘shimcha materiallar");
+  expect(host.textContent).toContain("Hozircha material yuklanmagan.");
+  button("2. Amaliy");
+  expect(host.textContent).toContain("Amaliy ishni topshirish");
+  expect(host.querySelector(".subnav").textContent).not.toContain(
+    "React kursi",
+  );
+});
+test("finance debtor button displays all debtors and personal links", () => {
+  data.enrollments[0].fee = 600000;
+  render("/admin/finance");
+  const el = [...host.querySelectorAll("button")].find((e) =>
+    e.textContent.includes("Qarzdorlar"),
+  );
+  act(() => el.click());
+  expect(host.textContent).toContain("Barcha qarzdorlar");
+  expect(
+    host.querySelector('a[href="/admin/students/student"]'),
+  ).not.toBeNull();
+  expect(host.textContent).toContain("600");
+});
+test("admin logout uses same confirmation", () => {
+  render("/admin");
+  button(" Log out");
+  expect(host.textContent).toContain("Hisobdan chiqmoqchimisiz?");
+});
+
+test('dashboard payment modal records payment and refreshes balance',()=>{
+ data.enrollments[0].fee=600000;render('/admin');
+ const trigger=[...host.querySelectorAll('button')].find(e=>e.textContent.includes('To‘lov qo‘shish'));act(()=>trigger.click());
+ const dialog=host.querySelector('[role="dialog"]');
+ function select(el,value){act(()=>{el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));});}
+ select(dialog.querySelectorAll('select')[0],'student');
+ select(dialog.querySelectorAll('select')[1],'course-ai');
+ input(dialog.querySelector('input[name="amount"]'),'100000');
+ act(()=>dialog.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+ expect(host.querySelector('[role="dialog"]')).toBeNull();
+ expect(JSON.parse(localStorage.getItem(KEY)).payments[0].amount).toBe(100000);
+ expect(host.textContent).toContain('To‘lov saqlandi.');
+});
+
+test('dashboard courses card opens searchable modal and allows editing',()=>{
+ render('/admin');
+ const trigger=[...host.querySelectorAll('button')].find(e=>e.classList.contains('stat')&&e.textContent.includes('Kurslar'));
+ act(()=>trigger.click());
+ const dialog=host.querySelector('[role="dialog"]');expect(dialog.textContent).toContain('Kurslarni boshqarish');
+ input(dialog.querySelector('input[aria-label="Kurslarni qidirish"]'),'React');
+ expect(dialog.querySelectorAll('.course-manage-card')).toHaveLength(1);
+ act(()=>dialog.querySelector('.course-manage-card button').click());
+ const title=dialog.querySelector('form input');input(title,'React yangi nom');
+ act(()=>dialog.querySelector('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+ expect(dialog.textContent).toContain('React yangi nom');
+ expect(JSON.parse(localStorage.getItem(KEY)).courses.find(c=>c.id==='react').title).toBe('React yangi nom');
+});
+
+```
+
+## src/components/CourseManager.css
+
+```css
+.course-modal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+.course-search {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+}
+.course-search > svg {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+}
+.course-search input {
+  padding-left: 46px;
+  margin: 0;
+}
+.course-modal-list {
+  display: grid;
+  gap: 18px;
+}
+.course-manage-card {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+}
+.course-manage-icon {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  display: flex;
+}
+.course-manage-body {
+  flex: 1;
+  min-width: 180px;
+}
+.course-manage-body h3 {
+  margin: 0 0 8px;
+}
+.course-manage-body p {
+  color: var(--muted);
+  margin: 0 0 14px;
+}
+.course-card-meta {
+  display: flex;
+  gap: 12px 20px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: var(--fs-base);
+}
+.course-card-meta strong {
+  color: var(--primary);
+}
+.course-card-meta span,
+.course-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.course-back {
+  margin-top: 18px;
+}
+.course-manage-card > .secondary {
+  margin-left: auto;
+}
+@media (max-width: 600px) {
+  .course-manage-card {
+    padding: 18px;
+  }
+  .course-manage-card > .secondary {
+    width: 100%;
+  }
+  .course-modal-toolbar > .primary {
+    width: 100%;
+  }
+}
+
+```
+
 ## src/components/CourseManager.jsx
 
 ```jsx
 import { useState } from "react";
+import { BookOpen, Plus, Search, Users, Pencil, ArrowLeft } from "lucide-react";
 import { useApp } from "../context/AppContext";
-import { uid } from "../services/db";
-export default function CourseManager() {
+import { uid, money, integer } from "../services/db";
+import Modal from "./Modal";
+import "./CourseManager.css";
+
+export default function CourseManager({ open, onOpenChange }) {
   const { data, update, notify } = useApp();
+  const [localOpen, setLocalOpen] = useState(false);
   const [draft, setDraft] = useState(null);
+  const [query, setQuery] = useState("");
+  const visible = open ?? localOpen;
+  function show(value) {
+    (onOpenChange || setLocalOpen)(value);
+    if (!value) {
+      setDraft(null);
+      setQuery("");
+    }
+  }
+  function create() {
+    setDraft({ id: uid(), title: "", price: "", description: "" });
+    show(true);
+  }
   function save(e) {
     e.preventDefault();
-    const title = draft.title.trim(),
-      price = Number(draft.price);
-    if (title.length < 2 || !Number.isSafeInteger(price) || price < 0)
-      return notify("Kurs nomi va narxini to‘g‘ri kiriting.");
-    if (
-      data.courses.some(
-        (c) =>
-          c.id !== draft.id && c.title.toLowerCase() === title.toLowerCase(),
+    const title = draft.title.trim();
+    if (title.length < 2)
+      return notify("Kurs nomi kamida 2 belgidan iborat bo‘lsin.");
+    const ok = update((d) => {
+      const price = integer(draft.price);
+      if (
+        d.courses.some(
+          (c) =>
+            c.id !== draft.id && c.title.toLowerCase() === title.toLowerCase(),
+        )
       )
-    )
-      return notify("Bu nomdagi kurs mavjud.");
-    if (
-      update((d) => {
-        const i = d.courses.findIndex((c) => c.id === draft.id);
-        const course = { ...draft, title, price };
-        if (i < 0) d.courses.push(course);
-        else d.courses[i] = course;
-      })
-    ) {
+        throw Error("Bu nomdagi kurs mavjud.");
+      const course = {
+        ...draft,
+        title,
+        price,
+        description: draft.description.trim(),
+      };
+      const index = d.courses.findIndex((c) => c.id === draft.id);
+      if (index < 0) d.courses.push(course);
+      else d.courses[index] = course;
+    });
+    if (ok) {
       setDraft(null);
+      setQuery("");
       notify("Kurs saqlandi.");
     }
   }
+  const courses = data.courses.filter((c) =>
+    (c.title + " " + c.description)
+      .toLowerCase()
+      .includes(query.trim().toLowerCase()),
+  );
   return (
     <>
       <button
+        type="button"
         className="secondary"
-        onClick={() =>
-          setDraft({ id: uid(), title: "", price: "", description: "" })
-        }
+        onClick={() => {
+          setDraft(null);
+          show(true);
+        }}
       >
-        + Yangi kurs
+        <BookOpen size={22} /> Kurslar ({data.courses.length})
       </button>
-      <details className="course-manager">
-        <summary>Kurslar ({data.courses.length})</summary>
-        {data.courses.map((c) => (
-          <div className="row" key={c.id}>
-            <span>
-              {c.title} · {Number(c.price).toLocaleString("uz-UZ")} so‘m ·{" "}
-              {
-                data.users.filter(
-                  (u) => u.role === "student" && u.courseId === c.id,
-                ).length
-              }{" "}
-              talaba
-            </span>
-            <button className="secondary" onClick={() => setDraft({ ...c })}>
-              Tahrirlash
-            </button>
-          </div>
-        ))}
-      </details>
-      {draft && (
-        <div className="modal-backdrop">
-          <section
-            className="modal narrow"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Kurs yaratish"
-          >
-            <div className="row">
-              <h2>Kurs ma’lumotlari</h2>
-              <button className="ghost" onClick={() => setDraft(null)}>
-                ×
+      <button type="button" className="secondary" onClick={create}>
+        <Plus size={22} /> Yangi kurs
+      </button>
+      {visible && (
+        <Modal
+          title={draft ? "Kurs ma’lumotlari" : "Kurslarni boshqarish"}
+          onClose={() => show(false)}
+        >
+          {draft ? (
+            <>
+              <button
+                className="text-btn course-back"
+                type="button"
+                onClick={() => setDraft(null)}
+              >
+                <ArrowLeft size={20} /> Kurslar ro‘yxatiga
               </button>
-            </div>
-            <form onSubmit={save}>
-              <label>
-                Kurs nomi
-                <input
-                  required
-                  minLength={2}
-                  value={draft.title}
-                  onChange={(e) =>
-                    setDraft({ ...draft, title: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Narxi (so‘m)
-                <input
-                  required
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={draft.price}
-                  onChange={(e) =>
-                    setDraft({ ...draft, price: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Tavsif
-                <textarea
-                  value={draft.description}
-                  onChange={(e) =>
-                    setDraft({ ...draft, description: e.target.value })
-                  }
-                />
-              </label>
-              <p className="muted small">
-                Narx o‘zgarishi avval qo‘shilgan talabalar kelishilgan narxini
-                o‘zgartirmaydi.
+              <form onSubmit={save}>
+                <label>
+                  Kurs nomi
+                  <input
+                    autoFocus
+                    required
+                    minLength={2}
+                    maxLength={150}
+                    value={draft.title}
+                    onChange={(e) =>
+                      setDraft({ ...draft, title: e.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Narxi (so‘m)
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    max="1000000000000"
+                    step="1"
+                    value={draft.price}
+                    onChange={(e) =>
+                      setDraft({ ...draft, price: e.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Tavsif
+                  <textarea
+                    maxLength={3000}
+                    value={draft.description}
+                    onChange={(e) =>
+                      setDraft({ ...draft, description: e.target.value })
+                    }
+                  />
+                </label>
+                <p className="muted">
+                  Yangi narx avvalgi talabalar bilan kelishilgan narxni
+                  o‘zgartirmaydi.
+                </p>
+                <div className="button-row">
+                  <button className="primary">Saqlash</button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setDraft(null)}
+                  >
+                    Bekor qilish
+                  </button>
+                </div>
+              </form>
+            </>
+          ) : (
+            <>
+              <div className="course-modal-toolbar">
+                <div className="course-search">
+                  <Search size={22} />
+                  <input
+                    aria-label="Kurslarni qidirish"
+                    placeholder="Kurs nomi bo‘yicha qidiring…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </div>
+                <button className="primary" onClick={create}>
+                  <Plus size={22} /> Yangi kurs
+                </button>
+              </div>
+              <p className="muted">
+                {courses.length} ta kurs · narxlar va o‘quvchilar
               </p>
-              <button className="primary">Saqlash</button>
-            </form>
-          </section>
-        </div>
+              <div className="course-modal-list">
+                {courses.map((c) => (
+                  <article className="course-manage-card" key={c.id}>
+                    <div className="course-manage-icon">
+                      <BookOpen size={26} />
+                    </div>
+                    <div className="course-manage-body">
+                      <h3>{c.title}</h3>
+                      <p>{c.description || "Tavsif kiritilmagan"}</p>
+                      <div className="course-card-meta">
+                        <strong>{money(c.price)}</strong>
+                        <span>
+                          <Users size={20} />{" "}
+                          {
+                            data.enrollments.filter((e) => e.courseId === c.id)
+                              .length
+                          }{" "}
+                          talaba
+                        </span>
+                        <span>
+                          {
+                            data.lessons.filter(
+                              (l) => l.courseId === c.id && !l.archived,
+                            ).length
+                          }{" "}
+                          dars
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      className="secondary"
+                      onClick={() => setDraft({ ...c })}
+                    >
+                      <Pencil size={20} /> Tahrirlash
+                    </button>
+                  </article>
+                ))}
+              </div>
+              {!courses.length && (
+                <div className="empty">
+                  {query
+                    ? "Qidiruvga mos kurs topilmadi."
+                    : "Hali kurs yo‘q. Yangi kurs yarating."}
+                </div>
+              )}
+            </>
+          )}
+        </Modal>
       )}
     </>
   );
@@ -208,219 +541,146 @@ export default function CourseManager() {
 ## src/components/Layout.css
 
 ```css
-.app-shell {
-  display: flex;
-  min-height: 100vh;
-}
-.sidebar {
-  width: 246px;
-  background: #fff;
-  border-right: 1px solid var(--line);
-  padding: 36px 22px 20px;
-  display: flex;
-  flex-direction: column;
+.topbar {
   position: fixed;
-  inset: 0 auto 0 0;
+  inset: 0 0 auto 0;
+  height: var(--header-height);
+  z-index: 40;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 28px;
 }
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 19px;
-  font-weight: 800;
-  letter-spacing: -0.6px;
+  gap: 12px;
+  font-size: var(--fs-h2);
+  font-weight: 700;
 }
 .brand > span {
-  background: var(--purple);
-  color: white;
+  padding: 4px 12px;
   border-radius: 10px;
-  padding: 8px 7px;
-  font-size: 15px;
-  box-shadow: 0 4px 12px #6738ee30;
+  background: var(--primary);
+  color: var(--surface);
+  font-size: var(--fs-h3);
 }
-.brand i {
-  color: var(--purple);
-  font-style: normal;
+.header-account {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  font-size: var(--fs-base);
+}
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: var(--header-height);
+  bottom: 0;
+  width: var(--sidebar-width);
+  padding: 25px 18px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  z-index: 30;
 }
 .nav-label {
-  font-size: 10px;
-  letter-spacing: 1.3px;
-  color: #9993ac;
-  margin: 45px 10px 17px;
-}
-.sidebar nav {
-  display: grid;
-  gap: 8px;
+  padding: 0 12px;
 }
 .sidebar nav a {
   display: flex;
-  gap: 12px;
   align-items: center;
-  color: #77718a;
-  padding: 13px 12px;
-  border-radius: 9px;
-  font-size: 13px;
-  font-weight: 600;
+  gap: 12px;
+  padding: 14px 12px;
+  border-radius: 10px;
+  font-size: var(--fs-base);
+  margin: 6px 0;
 }
 .sidebar nav a.active {
-  color: var(--purple);
-  background: #ede7ff;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
 }
 .sidebar-bottom {
-  margin-top: auto;
+  padding: 28px 12px;
 }
-.mini-card {
-  padding: 18px;
-  background: #f7f4ff;
-  border: 1px solid #eee7ff;
-  border-radius: 12px;
-  margin: 30px 0;
+.subnav {
+  padding-left: 18px;
+  border-left: 2px solid var(--primary-border);
+  margin-left: 20px;
 }
-.mini-card span {
-  font-size: 12px;
-  font-weight: 700;
+.subnav a {
+  overflow-wrap: anywhere;
 }
-.mini-card p {
-  font-size: 11px;
-  line-height: 1.8;
-  color: var(--muted);
-}
-.mini-card svg {
-  color: var(--purple);
-}
-.account {
-  display: flex;
-  gap: 9px;
-  align-items: center;
-  border-top: 1px solid var(--line);
-  padding-top: 22px;
-}
-.avatar,
-.top-avatar {
-  background: #e9defe;
-  color: #6033bd;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  width: 36px;
-  height: 36px;
-  font-weight: 700;
-}
-.account strong {
-  display: block;
-  font-size: 11px;
-}
-.account small {
-  font-size: 10px;
-  color: var(--muted);
-}
-.logout {
-  background: none;
-  color: #b55c68;
-  font-size: 12px;
-  padding: 20px 5px 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.course-toggle {
+  font-size: var(--fs-small);
 }
 .main-wrap {
-  margin-left: 246px;
-  flex: 1;
-  min-width: 0;
-}
-.topbar {
-  height: 81px;
-  background: #ffffffb5;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 43px;
-  color: var(--muted);
-  font-size: 12px;
-}
-.topbar > div {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.top-avatar {
-  width: 31px;
-  height: 31px;
-  margin-left: 15px;
-}
-.mode-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #a995e7;
+  margin-left: var(--sidebar-width);
+  padding-top: var(--header-height);
 }
 main {
-  max-width: 1200px;
+  padding: 36px;
+  max-width: 1500px;
   margin: auto;
-  padding: 38px 43px 50px;
-  min-height: calc(100vh - 140px);
+  min-height: calc(100vh - var(--header-height));
 }
 footer {
-  display: flex;
-  justify-content: space-between;
-  padding: 18px 43px;
-  font-size: 10px;
-  color: #9a94a7;
+  padding: 24px 36px;
+  color: var(--muted);
+  font-size: var(--fs-small);
 }
-footer span {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+.mobile-menu {
+  display: none;
 }
-@media (max-width: 800px) {
-  .sidebar {
-    position: relative;
-    width: 100%;
-    padding: 16px;
+@media (max-width: 1000px) {
+  .mobile-menu {
+    display: inline-flex;
   }
-  .app-shell {
+  .sidebar {
+    display: none;
+    width: min(90vw, 360px);
+    box-shadow: var(--shadow);
+  }
+  .sidebar.open {
     display: block;
   }
-  .nav-label,
-  .mini-card,
-  .account {
+  .main-wrap {
+    margin-left: 0;
+  }
+  .header-account > span {
     display: none;
   }
-  .sidebar nav {
-    display: flex;
-    overflow: auto;
-    margin-top: 20px;
-    gap: 4px;
-  }
-  .sidebar nav a {
-    white-space: nowrap;
-    font-size: 11px;
-    padding: 10px;
-  }
-  .sidebar-bottom {
-    position: absolute;
-    right: 20px;
-    top: 0;
-  }
-  .logout {
-    padding: 20px 0;
-  }
-  .main-wrap {
-    margin: 0;
-  }
   .topbar {
-    height: 55px;
-    padding: 0 20px;
+    padding: 14px 18px;
   }
   main {
     padding: 25px 18px;
   }
-  .topbar > span {
-    font-size: 10px;
+  .topbar .brand {
+    font-size: var(--fs-medium);
   }
-  footer {
-    padding: 18px;
+  .topbar .secondary {
+    padding: 10px 12px;
+  }
+  .brand > span {
+    padding: 4px 8px;
+  }
+}
+@media (max-width: 600px) {
+  .topbar .brand > span {
+    display: none;
+  }
+  .topbar .brand {
+    font-size: var(--fs-base);
+  }
+  .topbar {
+    gap: 8px;
+  }
+  .header-account {
+    gap: 8px;
   }
 }
 
@@ -429,7 +689,8 @@ footer span {
 ## src/components/Layout.jsx
 
 ```jsx
-import { NavLink, Outlet, Navigate } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, Outlet, Navigate, useNavigate } from "react-router-dom";
 import {
   BookOpen,
   Award,
@@ -440,88 +701,481 @@ import {
   Clapperboard,
   ClipboardCheck,
   MessageSquare,
-  ArrowUpRight,
+  Wallet,
+  Menu,
 } from "lucide-react";
 import { useApp } from "../context/AppContext";
+import { enrollmentsFor } from "../services/db";
+import Modal from "./Modal";
 import "./Layout.css";
 export function Brand() {
   return (
     <div className="brand">
-      <span>AI</span> AI Academy<i>•</i>
+      <span>AI</span> Academy
     </div>
   );
 }
 export default function Layout() {
-  const { user, logout } = useApp();
+  const { data, user, logout } = useApp();
+  const go = useNavigate();
+  const [confirm, setConfirm] = useState(false),
+    [menu, setMenu] = useState(false),
+    [expanded, setExpanded] = useState(true);
   if (!user) return <Navigate to="/login" replace />;
   const admin = user.role === "admin";
   const links = admin
     ? [
         ["/admin", LayoutDashboard, "Umumiy ko‘rinish"],
-        ["/admin/lessons", Clapperboard, "Darslar va testlar"],
-        ["/admin/students", Users, "O‘quvchilar"],
-        ["/admin/reviews", ClipboardCheck, "Vazifalar"],
+        ["/admin/lessons", Clapperboard, "Kurslar va darslar"],
+        ["/admin/students", Users, "Talabalar"],
+        ["/admin/finance", Wallet, "Moliya"],
+        ["/admin/reviews", ClipboardCheck, "Amaliy ishlar"],
         ["/admin/support", MessageSquare, "Murojaatlar"],
       ]
     : [
-        ["/student", BookOpen, "Mening kursim"],
-        ["/student/certificate", Award, "Sertifikat"],
-        ["/student/support", Headphones, "Qo‘llab-quvvatlash"],
+        ["/student", BookOpen, "Mening kurslarim"],
+        ["/student/certificate", Award, "Sertifikatlar"],
+        ["/student/support", Headphones, "Yordam"],
       ];
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <header className="topbar">
+        <button
+          className="mobile-menu ghost"
+          onClick={() => setMenu(!menu)}
+          aria-label="Menyu"
+        >
+          <Menu />
+        </button>
         <Brand />
-        <div className="nav-label">
-          {admin ? "BOSHQARUV PANELI" : "O‘QUV PLATFORMASI"}
+        <div className="header-account">
+          <span>{user.name}</span>
+          <button className="secondary" onClick={() => setConfirm(true)}>
+            <LogOut size={22} /> Log out
+          </button>
         </div>
+      </header>
+      <aside className={"sidebar " + (menu ? "open" : "")}>
+        <p className="nav-label">{admin ? "ADMIN PANEL" : "O‘QUVCHI PANELI"}</p>
         <nav>
-          {links.map(([to, Icon, title]) => (
-            <NavLink end key={to} to={to}>
-              <Icon size={19} />
-              <span>{title}</span>
-            </NavLink>
+          {links.map(([to, Icon, label]) => (
+            <div key={to}>
+              <NavLink
+                end
+                to={to}
+                onClick={() => {
+                  setMenu(false);
+                  if (to === "/student") setExpanded(true);
+                }}
+              >
+                <Icon size={22} />
+                {label}
+              </NavLink>
+              {to === "/student" && (
+                <>
+                  <button
+                    className="text-btn course-toggle"
+                    onClick={() => setExpanded(!expanded)}
+                  >
+                    {expanded ? "Kurslarni yashirish" : "Kurslarni ko‘rsatish"}
+                  </button>
+                  {expanded && (
+                    <div className="subnav">
+                      {enrollmentsFor(data, user.id).map((e) => (
+                        <NavLink
+                          key={e.id}
+                          to={"/student/course/" + e.courseId}
+                          onClick={() => setMenu(false)}
+                        >
+                          {data.courses.find((c) => c.id === e.courseId)
+                            ?.title || "Kurs"}
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          {!admin && (
-            <div className="mini-card">
-              <span>Har kuni bir qadam ✦</span>
-              <p>Katta natijalar kichik qadamlardan boshlanadi.</p>
-              <BookOpen size={25} />
-            </div>
-          )}
-          <div className="account">
-            <div className="avatar">{user.name[0]}</div>
-            <div>
-              <strong>{user.name}</strong>
-              <small>{user.email}</small>
-            </div>
-          </div>
-          <button className="logout" onClick={logout}>
-            <LogOut size={17} /> Sign out
-          </button>
+          <span className="badge">Demo rejim</span>
+          <p>Bilim sari yangi qadam.</p>
         </div>
       </aside>
       <div className="main-wrap">
-        <header className="topbar">
-          <span>O‘rganing. Yarating. O‘sing.</span>
-          <div>
-            <span className="mode-dot" /> Demo platforma{" "}
-            <span className="top-avatar">{user.name[0]}</span>
-          </div>
-        </header>
         <main>
           <Outlet />
         </main>
-        <footer>
-          © {new Date().getFullYear()} AI Academy{" "}
-          <span>
-            Kelajak bugundan boshlanadi <ArrowUpRight size={13} />
-          </span>
-        </footer>
+        <footer>© {new Date().getFullYear()} AI Academy</footer>
       </div>
+      {confirm && (
+        <Modal
+          title="Hisobdan chiqmoqchimisiz?"
+          onClose={() => setConfirm(false)}
+        >
+          <p>Chiqishni tasdiqlaysizmi?</p>
+          <div className="button-row">
+            <button className="secondary" onClick={() => setConfirm(false)}>
+              Yo‘q, qolaman
+            </button>
+            <button
+              className="primary"
+              onClick={() => {
+                logout();
+                go("/login", { replace: true });
+              }}
+            >
+              Ha, chiqish
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
+  );
+}
+
+```
+
+## src/components/Modal.jsx
+
+```jsx
+import { useEffect, useRef } from "react";
+export default function Modal({ title, onClose, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const old = document.activeElement;
+    ref.current?.focus();
+    const saved = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = saved;
+      old?.focus();
+    };
+  }, []);
+  function key(e) {
+    if (e.key === "Escape") onClose();
+    if (e.key === "Tab") {
+      const list = ref.current.querySelectorAll(
+        "button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]",
+      );
+      if (!list.length) return;
+      const first = list[0],
+        last = list[list.length - 1];
+      if (
+        e.shiftKey &&
+        (document.activeElement === first ||
+          document.activeElement === ref.current)
+      ) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+  return (
+    <div className="modal-backdrop">
+      <section
+        ref={ref}
+        tabIndex={-1}
+        onKeyDown={key}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <div className="row">
+          <h2>{title}</h2>
+          <button className="ghost" aria-label="Yopish" onClick={onClose}>
+            ×
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+```
+
+## src/components/PaymentForm.jsx
+
+```jsx
+import { useState } from "react";
+import { useApp } from "../context/AppContext";
+import {
+  uid,
+  enrollmentsFor,
+  enrollmentSummary,
+  addPayment,
+  localDate,
+  money,
+} from "../services/db";
+export default function PaymentForm({ studentId, onSaved }) {
+  const { data, user, update } = useApp();
+  const [selected, setSelected] = useState(studentId || ""),
+    [course, setCourse] = useState(""),
+    [busy, setBusy] = useState(false);
+  const choices = enrollmentsFor(data, selected);
+  const enrollment = choices.find((e) => e.courseId === course);
+  function save(e) {
+    e.preventDefault();
+    if (busy) return;
+    const form = e.currentTarget,
+      f = new FormData(form);
+    setBusy(true);
+    const ok = update((d) =>
+      addPayment(d, {
+        id: uid(),
+        userId: selected,
+        courseId: course,
+        amount: f.get("amount"),
+        date: f.get("date"),
+        method: f.get("method"),
+        note: f.get("note").trim(),
+        createdBy: user.id,
+      }),
+    );
+    setBusy(false);
+    if (ok) {
+      form.reset();
+      setCourse("");
+      onSaved?.();
+    }
+  }
+  return (
+    <form onSubmit={save}>
+      <div className="form-grid">
+        {!studentId && (
+          <label>
+            Talaba
+            <select
+              required
+              value={selected}
+              onChange={(e) => {
+                setSelected(e.target.value);
+                setCourse("");
+              }}
+            >
+              <option value="">Talabani tanlang</option>
+              {data.users
+                .filter((u) => u.role === "student")
+                .map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} — {u.email}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+        <label>
+          Kurs
+          <select
+            required
+            value={course}
+            onChange={(e) => setCourse(e.target.value)}
+          >
+            <option value="">Kursni tanlang</option>
+            {choices.map((e) => (
+              <option key={e.id} value={e.courseId}>
+                {data.courses.find((c) => c.id === e.courseId)?.title} · qarz{" "}
+                {money(enrollmentSummary(data, e).debt)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Miqdor (so‘m)
+          <input
+            required
+            name="amount"
+            type="number"
+            min="1"
+            step="1"
+            max={
+              enrollment ? enrollmentSummary(data, enrollment).debt : undefined
+            }
+          />
+        </label>
+        <label>
+          Sana
+          <input
+            name="date"
+            type="date"
+            required
+            max={localDate()}
+            defaultValue={localDate()}
+          />
+        </label>
+        <label>
+          Usul
+          <select name="method">
+            <option>Naqd</option>
+            <option>Karta</option>
+            <option>Bank o‘tkazmasi</option>
+          </select>
+        </label>
+        <label>
+          Izoh
+          <input name="note" maxLength={1000} />
+        </label>
+      </div>
+      <button
+        className="primary"
+        disabled={
+          busy || !enrollment || !enrollmentSummary(data, enrollment).debt
+        }
+      >
+        To‘lovni saqlash
+      </button>
+      <p className="muted">
+        To‘lov yozuvi qo‘lda kiritiladi; bu bank tranzaksiyasi emas.
+      </p>
+    </form>
+  );
+}
+
+```
+
+## src/components/StudentForm.jsx
+
+```jsx
+import { useState } from "react";
+import { useApp } from "../context/AppContext";
+import { uid, enrollmentsFor, saveStudent, money } from "../services/db";
+import Modal from "./Modal";
+export default function StudentForm({ student, onClose, onSaved }) {
+  const { data, update } = useApp();
+  const [draft, setDraft] = useState(() =>
+    student
+      ? { ...student }
+      : {
+          id: uid(),
+          name: "",
+          email: "",
+          password: "",
+          phone: "",
+          notes: "",
+          role: "student",
+          active: true,
+          createdAt: new Date().toISOString(),
+        },
+  );
+  const [selected, setSelected] = useState(() =>
+    student ? enrollmentsFor(data, student.id).map((e) => e.courseId) : [],
+  );
+  const [error, setError] = useState("");
+  function field(k, v) {
+    setDraft({ ...draft, [k]: v });
+  }
+  function save(e) {
+    e.preventDefault();
+    setError("");
+    const ok = update((d) => saveStudent(d, draft, selected));
+    if (ok) onSaved(draft.id);
+    else setError("Saqlanmadi. Ekrandagi xabarni tekshiring.");
+  }
+  return (
+    <Modal
+      title={student ? "Talaba va kurslarni tahrirlash" : "Yangi talaba"}
+      onClose={onClose}
+    >
+      <form onSubmit={save}>
+        <div className="form-grid">
+          <label>
+            To‘liq ism
+            <input
+              required
+              minLength={3}
+              value={draft.name}
+              onChange={(e) => field("name", e.target.value)}
+            />
+          </label>
+          <label>
+            Email
+            <input
+              type="email"
+              required
+              value={draft.email}
+              onChange={(e) => field("email", e.target.value)}
+            />
+          </label>
+          <label>
+            Demo parol
+            <input
+              type="password"
+              required
+              minLength={8}
+              value={draft.password}
+              onChange={(e) => field("password", e.target.value)}
+            />
+          </label>
+          <label>
+            Telefon
+            <input
+              type="tel"
+              value={draft.phone || ""}
+              onChange={(e) => field("phone", e.target.value)}
+            />
+          </label>
+          <label>
+            Holat
+            <select
+              value={String(draft.active)}
+              onChange={(e) => field("active", e.target.value === "true")}
+            >
+              <option value="true">Faol</option>
+              <option value="false">Bloklangan</option>
+            </select>
+          </label>
+          <label>
+            Izoh
+            <textarea
+              value={draft.notes || ""}
+              onChange={(e) => field("notes", e.target.value)}
+            />
+          </label>
+        </div>
+        <fieldset>
+          <legend>Kurslarni tanlang — bir nechtasini belgilash mumkin</legend>
+          {data.courses.map((c) => (
+            <label key={c.id} className="check-card">
+              <input
+                type="checkbox"
+                checked={selected.includes(c.id)}
+                onChange={(e) =>
+                  setSelected(
+                    e.target.checked
+                      ? [...selected, c.id]
+                      : selected.filter((id) => id !== c.id),
+                  )
+                }
+              />
+              <span>
+                {c.title}
+                <small>
+                  {money(
+                    enrollmentsFor(data, draft.id).find(
+                      (e) => e.courseId === c.id,
+                    )?.fee ?? c.price,
+                  )}
+                </small>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        <p>
+          Tarixi yoki to‘lovi bor kursni olib tashlab bo‘lmaydi. Yangi kurs
+          uchun amaldagi narx saqlanadi.
+        </p>
+        {error && <p className="error">{error}</p>}
+        <button className="primary" disabled={!selected.length}>
+          Saqlash
+        </button>
+      </form>
+    </Modal>
   );
 }
 
@@ -530,23 +1184,50 @@ export default function Layout() {
 ## src/context/AppContext.jsx
 
 ```jsx
-import { createContext, useContext, useRef, useState } from "react";
+import { createContext, useContext, useRef, useState, useEffect } from "react";
 import { read, write } from "../services/db";
 const Context = createContext(null);
 const KEY = "academy-user";
 export function AppProvider({ children }) {
   const [data, setData] = useState(read);
   const current = useRef(data);
+  const lastSaved = useRef(localStorage.getItem("ai-academy-v1"));
   const [session, setSession] = useState(
     () => localStorage.getItem(KEY) || sessionStorage.getItem(KEY),
   );
   const [notice, setNotice] = useState("");
   const user = data.users.find((u) => u.id === session && u.active);
+  useEffect(() => {
+    function changed(event) {
+      if (event.key === "ai-academy-v1") {
+        try {
+          const next = read();
+          current.current = next;
+          setData(next);
+          lastSaved.current = event.newValue;
+        } catch (e) {
+          setNotice(e.message);
+        }
+      }
+    }
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, []);
   function update(callback) {
     try {
+      if (localStorage.getItem("ai-academy-v1") !== lastSaved.current) {
+        const latest = read();
+        current.current = latest;
+        setData(latest);
+        lastSaved.current = localStorage.getItem("ai-academy-v1");
+        throw Error(
+          "Boshqa oynada ma’lumot o‘zgardi. Tekshirib qayta saqlang.",
+        );
+      }
       const next = structuredClone(current.current);
       callback(next);
       write(next);
+      lastSaved.current = localStorage.getItem("ai-academy-v1");
       current.current = next;
       setData(next);
       return true;
@@ -565,6 +1246,7 @@ export function AppProvider({ children }) {
     if (!account)
       throw Error("Email yoki parol noto‘g‘ri, yoki hisob bloklangan.");
     write(current.current);
+    lastSaved.current = localStorage.getItem("ai-academy-v1");
     (remember ? localStorage : sessionStorage).setItem(KEY, account.id);
     (remember ? sessionStorage : localStorage).removeItem(KEY);
     setSession(account.id);
@@ -600,250 +1282,674 @@ export const useApp = () => useContext(Context);
 ## src/index.css
 
 ```css
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 :root {
-  font-family: Inter, Arial, sans-serif;
-  color: #292235;
-  background: #f8f7fc;
-  font-synthesis: none;
-  --purple: #6838ec;
-  --muted: #92889f;
-  --line: #eeeaf4;
+  --primary: #080acd;
+  --primary-hover: #0608a7;
+  --primary-soft: #eceeff;
+  --primary-border: #c5c9f7;
+  --background: #f4f6fc;
+  --surface: #ffffff;
+  --surface-soft: #f8f9fd;
+  --text: #17213b;
+  --muted: #59657b;
+  --border: #dce2ee;
+  --success: #147449;
+  --success-soft: #e5f5ed;
+  --danger: #ae233f;
+  --danger-soft: #fff0f3;
+  --warning: #875900;
+  --overlay: rgba(14, 22, 49, 0.6);
+  --shadow-color: rgba(12, 26, 75, 0.09);
+  --video-bg: #0c1025;
+  --video-text: #ffffff;
+  --watermark: rgba(255, 255, 255, 0.65);
+  --transparent: transparent;
+  --gradient: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  --hero-gradient: linear-gradient(130deg, var(--primary-soft), var(--surface));
+  --shadow: 0 8px 30px var(--shadow-color);
+  --radius: 16px;
+  --sidebar-width: 290px;
+  --header-height: 88px;
+  --fs-small: 18px;
+  --fs-base: 18px;
+  --fs-label: 18px;
+  --fs-medium: 20px;
+  --fs-h3: 22px;
+  --fs-h2: 28px;
+  --fs-title: clamp(28px, 3vw, 40px);
+  --fs-stat: 32px;
+  --fs-hero: clamp(36px, 5vw, 64px);
+  --fs-art: 80px;
+  --cert-fs-brand: 40px;
+  --cert-fs-title: 80px;
+  --cert-fs-subtitle: 28px;
+  --cert-fs-name: 62px;
+  --cert-fs-course: 44px;
+  --cert-fs-score: 38px;
+  --cert-fs-body: 27px;
+  --cert-fs-date: 26px;
+  --cert-fs-id: 22px;
+  --cert-fs-footer: 24px;
+  --font: Arial, Helvetica, sans-serif;
 }
 * {
   box-sizing: border-box;
 }
+html {
+  scroll-padding-top: calc(var(--header-height) + 24px);
+}
 body {
   margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-base);
+  line-height: 1.6;
 }
 button,
 input,
 select,
 textarea {
   font: inherit;
+  color: inherit;
 }
 button,
 a,
 input,
-textarea,
-select {
-  -webkit-tap-highlight-color: transparent;
+select,
+textarea {
+  -webkit-tap-highlight-color: var(--transparent);
 }
 button {
   cursor: pointer;
   border: 0;
-  border-radius: 7px;
+  border-radius: 10px;
+  min-height: 44px;
 }
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 a {
   text-decoration: none;
   color: inherit;
 }
+a:hover {
+  color: var(--primary);
+}
 button,
 a {
   transition:
-    background 0.18s,
-    box-shadow 0.18s,
-    transform 0.18s;
+    background 0.15s,
+    box-shadow 0.15s;
 }
-a:hover {
-  color: var(--purple);
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--primary-border);
+  outline-offset: 3px;
 }
-button:hover:not(:disabled) {
-  filter: brightness(0.97);
+h1 {
+  font-size: var(--fs-title);
+  line-height: 1.2;
+  letter-spacing: -1px;
+}
+h2 {
+  font-size: var(--fs-h2);
+  line-height: 1.3;
+}
+h3 {
+  font-size: var(--fs-h3);
+  line-height: 1.4;
+}
+h1,
+h2,
+h3,
+p {
+  overflow-wrap: anywhere;
+}
+small {
+  font-size: var(--fs-small);
+}
+label {
+  font-size: var(--fs-label);
+  display: block;
+  font-weight: 600;
 }
 input,
-textarea,
-select {
+select,
+textarea {
   width: 100%;
-  background: #fbfaff;
-  border: 1px solid #e8e2f0;
-  border-radius: 7px;
-  padding: 12px;
-  color: #453b52;
-  font-size: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: var(--fs-base);
+  min-height: 48px;
+  margin-top: 8px;
 }
 input::placeholder,
 textarea::placeholder {
-  color: #aaa1b6;
-}
-input:focus,
-textarea:focus,
-select:focus {
-  outline: 2px solid #b497f1;
-  outline-offset: 1px;
+  color: var(--muted);
 }
 textarea {
   resize: vertical;
-  min-height: 115px;
-  line-height: 1.7;
+  min-height: 120px;
+  line-height: 1.6;
 }
-button:focus-visible,
-a:focus-visible {
-  outline: 3px solid #b69be8;
-  outline-offset: 3px;
+input[type="checkbox"],
+input[type="radio"] {
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  margin: 0;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+form > label {
+  margin: 20px 0;
+}
+form > .primary {
+  margin-top: 20px;
+}
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+}
+legend {
+  padding: 0 8px;
+  font-weight: 600;
+}
+summary {
+  cursor: pointer;
+}
+svg {
+  flex-shrink: 0;
+}
+.primary,
+.secondary,
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 18px;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  border-radius: 10px;
 }
 .primary {
-  background: linear-gradient(105deg, #7543f2, #6230e5);
-  color: white;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 12px 18px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 7px;
-  box-shadow: 0 3px 7px #6638e419;
+  background: var(--primary);
+  color: var(--surface);
 }
 .primary:hover {
-  color: white;
-  box-shadow: 0 5px 15px #6738ee25;
+  background: var(--primary-hover);
+  color: var(--surface);
 }
 .secondary {
-  background: #eee8fa;
-  color: #7149ac;
-  padding: 12px 16px;
-  font-size: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
 }
-.compact {
-  padding: 10px 13px;
-  font-size: 10px;
-  white-space: nowrap;
+.secondary:hover {
+  background: var(--primary-border);
 }
+.ghost {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+.text-btn {
+  background: var(--transparent);
+  color: var(--primary);
+  font-size: var(--fs-base);
+  padding: 8px;
+}
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.detail-panel,
+.table-panel,
+.task-panel,
+.review,
+.support-form,
+.faq {
+  padding: 28px;
+  margin: 24px 0;
+}
+.row,
+.button-row,
 .page-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.button-row {
+  justify-content: flex-start;
+}
+.page-heading {
+  margin-bottom: 28px;
 }
 .page-heading h1 {
-  font-size: 29px;
-  letter-spacing: -1px;
-  margin: 10px 0;
+  margin: 0 0 12px;
 }
 .page-heading p {
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.8;
   margin: 0;
+  color: var(--muted);
 }
-.page-heading .eyebrow {
-  font-size: 8px;
-}
-.pill {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  background: white;
-  border: 1px solid var(--line);
-  border-radius: 30px;
-  font-size: 10px;
-  color: #8b759e;
-  padding: 10px 14px;
-}
-.panel {
-  background: white;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-}
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+.muted,
+.small,
+.nav-label {
+  color: var(--muted);
+  font-size: var(--fs-small);
 }
 .purple {
-  color: var(--purple);
+  color: var(--primary);
 }
-.muted {
-  color: var(--muted);
-}
-.small {
-  font-size: 10px;
-}
-.badge {
+.badge,
+.pill {
   display: inline-flex;
-  font-size: 9px;
-  white-space: nowrap;
-  padding: 5px 8px;
-  border-radius: 5px;
-  background: #f0eafc;
-  color: #8a67af;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: var(--fs-small);
 }
 .badge.green {
-  color: #31915d;
-  background: #eaf7ef;
+  color: var(--success);
+  background: var(--success-soft);
 }
-.empty {
-  padding: 60px 25px;
-  text-align: center;
-  color: var(--muted);
-  font-size: 14px;
-}
-.empty a {
-  color: var(--purple);
+.danger,
+.error {
+  color: var(--danger);
 }
 .error {
-  color: #bf526a !important;
-  background: #fff0f3;
-  padding: 12px;
-  border-radius: 7px;
-  font-size: 12px !important;
+  background: var(--danger-soft);
+  padding: 16px;
+  border-radius: 10px;
+}
+.empty {
+  padding: 45px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+.back {
+  display: inline-flex;
+  gap: 8px;
+  color: var(--primary);
+  margin-bottom: 20px;
+}
+.inline-button {
+  display: inline-flex;
+  margin: 24px 0;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 20px;
+  margin: 28px 0;
+}
+.stat {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+  color: var(--text);
+}
+.stat strong {
+  font-size: var(--fs-stat);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.stat span {
+  font-size: var(--fs-small);
+  color: var(--muted);
+}
+.form-grid,
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  margin: 20px 0;
+}
+.search-box {
+  max-width: 650px;
+  margin: 16px 0 24px;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: var(--fs-base);
+}
+th {
+  color: var(--muted);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+th,
+td {
+  padding: 18px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  min-width: 120px;
+}
+td small {
+  display: block;
+  color: var(--muted);
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+td .purple {
+  font-weight: 600;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  z-index: 100;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal {
+  width: 760px;
+  max-width: 100%;
+  max-height: 90dvh;
+  overflow: auto;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 28px;
+  box-shadow: var(--shadow);
+}
+.modal.narrow {
+  width: 620px;
+}
+.modal h2 {
+  margin: 0;
 }
 .toast {
   position: fixed;
-  bottom: 25px;
-  right: 25px;
-  max-width: calc(100vw - 40px);
-  background: #31223f;
-  color: white;
-  padding: 15px 20px;
-  border-radius: 10px;
-  font-size: 12px;
-  box-shadow: 0 8px 40px #20103130;
-  z-index: 50;
+  right: 24px;
+  bottom: 24px;
+  max-width: min(620px, calc(100vw - 48px));
+  padding: 20px;
+  background: var(--text);
+  color: var(--surface);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  z-index: 200;
   display: flex;
-  gap: 15px;
   align-items: center;
+  gap: 18px;
+  font-size: var(--fs-base);
 }
 .toast button {
-  background: none;
-  color: white;
-  font-size: 20px;
+  background: var(--transparent);
+  color: var(--surface);
+  padding: 8px 14px;
+  font-size: var(--fs-h2);
 }
-.ghost {
-  background: #f4effa;
-  color: #846e9d;
-  padding: 4px 12px;
-  font-size: 24px;
+.check-card,
+.test-option {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin: 12px 0;
+  background: var(--surface-soft);
+  font-weight: 400;
 }
-.section-title {
-  font-size: 16px;
-  margin-top: 30px;
+.check-card small {
+  display: block;
+  color: var(--muted);
 }
-h1,
-h2,
-h3 {
+.tabs {
+  display: flex;
+  gap: 12px;
+  overflow: auto;
+  margin: 28px 0;
+  padding-bottom: 4px;
+}
+.tabs button {
+  white-space: nowrap;
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 12px 20px;
+  font-size: var(--fs-base);
+}
+.tabs button.active {
+  background: var(--primary);
+  color: var(--surface);
+  border-color: var(--primary);
+}
+.submission,
+.answer-text,
+.reply {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  padding: 20px;
+  border-radius: 12px;
+  margin: 20px 0;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-@media (max-width: 600px) {
+.result {
+  padding: 20px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-radius: 12px;
+}
+.attempt-detail {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.attempt-detail summary {
+  font-weight: 600;
+}
+.progress {
+  height: 10px;
+  background: var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 20px 0;
+}
+.progress i {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 12px;
+}
+.material-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.material-row span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 24px;
+}
+.course-card {
+  display: block;
+  padding: 28px;
+  box-shadow: var(--shadow);
+}
+.course-card p {
+  color: var(--muted);
+}
+.course-card strong {
+  color: var(--primary);
+}
+.course-card:hover {
+  border-color: var(--primary);
+}
+.lesson-list,
+.admin-lessons {
+  display: grid;
+  gap: 18px;
+}
+.lesson-row,
+.admin-lesson {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  padding: 24px;
+  flex-wrap: wrap;
+}
+.lesson-number {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-radius: 50%;
+  font-size: var(--fs-medium);
+}
+.grow {
+  flex: 1;
+  min-width: 180px;
+}
+.grow h3 {
+  margin: 0 0 12px;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.actions button {
+  padding: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: var(--fs-base);
+}
+.question-editor {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+}
+.question-editor > label {
+  margin: 18px 0;
+}
+.option-editor {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.course-manager {
+  width: 100%;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.course-manager .row {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.course-manager summary {
+  color: var(--primary);
+}
+.support-content {
+  max-width: 900px;
+}
+.faq details {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ticket {
+  padding: 24px;
+  margin: 18px 0;
+}
+.ticket p {
+  white-space: pre-wrap;
+}
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.section-title {
+  margin-top: 30px;
+}
+@media (max-width: 700px) {
+  .form-grid,
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .detail-panel,
+  .table-panel,
+  .task-panel,
+  .review,
+  .support-form {
+    padding: 18px;
+  }
+  .modal-backdrop {
+    padding: 12px;
+  }
+  .modal {
+    padding: 20px;
+  }
   .page-heading {
     align-items: flex-start;
-    flex-wrap: wrap;
   }
-  .page-heading h1 {
-    font-size: 25px;
+  .stats {
+    grid-template-columns: 1fr;
   }
-  .page-heading p {
-    font-size: 11px;
+  .primary,
+  .secondary {
+    white-space: normal;
+  }
+  .lesson-row,
+  .admin-lesson {
+    padding: 18px;
+  }
+  th,
+  td {
+    padding: 14px 10px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -871,402 +1977,100 @@ createRoot(document.getElementById("root")).render(
 ## src/pages/Admin.css
 
 ```css
-.stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 17px;
-  margin: 28px 0;
-}
-.stat {
-  padding: 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.stat svg {
-  color: var(--purple);
-}
-.stat strong {
-  font-size: 30px;
-  letter-spacing: -1px;
-}
-.stat span {
-  font-size: 11px;
-  color: var(--muted);
-}
-.table-panel {
-  padding: 23px;
-}
-.table-panel h3 {
-  font-size: 15px;
-}
-.table-scroll {
-  overflow-x: auto;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 12px;
-}
-th {
-  font-size: 10px;
-  letter-spacing: 0.3px;
-  color: #9790a5;
-  font-weight: 500;
-  padding: 18px 10px;
-  border-bottom: 1px solid var(--line);
-}
-td {
-  padding: 20px 10px;
-  border-bottom: 1px solid #f1edf6;
-}
-td small {
-  display: block;
-  color: var(--muted);
-  font-size: 10px;
-  margin-top: 6px;
-}
-td .progress {
-  min-width: 90px;
-}
-.admin-note {
-  padding: 24px;
-  background: #eee8fc;
-  display: flex;
-  gap: 19px;
-  align-items: center;
-  border-radius: 12px;
-  margin-top: 25px;
-  color: #7757a6;
-}
-.admin-note strong {
-  font-size: 13px;
-}
-.admin-note p {
-  font-size: 11px;
-  line-height: 1.8;
-}
-.admin-note a {
-  margin-left: auto;
-}
-.admin-lessons {
-  display: grid;
-  gap: 14px;
-  margin-top: 28px;
-}
-.admin-lesson {
-  padding: 22px;
-  display: flex;
-  align-items: center;
-  gap: 17px;
-}
-.admin-lesson h3 {
-  font-size: 14px;
-  margin: 0;
-}
-.admin-lesson p {
-  font-size: 11px;
-  color: var(--muted);
-}
-.grow {
-  flex: 1;
-}
-.actions {
-  display: flex;
-  gap: 6px;
-}
-.actions button {
-  padding: 8px;
-  background: #f5f2fb;
-  color: #8b77ac;
-  display: grid;
-  place-items: center;
-}
-.actions .danger {
-  color: #c46778;
-}
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: #20133170;
-  z-index: 10;
-  padding: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
-}
-.modal {
-  background: white;
-  width: 680px;
-  max-height: 92vh;
-  overflow: auto;
-  border-radius: 16px;
-  padding: 29px;
-  box-shadow: 0 30px 100px #21113340;
-}
-.modal.narrow {
-  width: 450px;
-}
-.modal h2 {
-  font-size: 21px;
-}
-.modal form > label,
-.review label {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  margin: 18px 0;
-}
-.modal label input,
-.modal label textarea,
-.modal label select,
-.review label textarea {
-  margin-top: 8px;
-}
-.modal form > .primary {
-  margin-top: 20px;
-}
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
-  font-size: 12px;
-}
-.question-editor {
-  background: #f8f6fc;
-  padding: 18px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  margin: 15px 0;
-}
-.question-editor strong {
-  font-size: 12px;
-}
-.question-editor > label {
-  display: block;
-  font-size: 11px;
-  margin-top: 15px;
-}
-.question-editor .option-editor {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.option-editor input[type="radio"] {
-  width: 15px;
-  accent-color: var(--purple);
-}
-.question-editor small {
-  font-size: 9px;
-  color: var(--muted);
-}
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 25px 0;
-  max-width: 440px;
-  color: #9287a4;
-}
-.review {
-  padding: 25px;
-  margin: 20px 0;
-}
-.review h3 {
-  font-size: 14px;
-  margin: 0;
-}
-.review p {
-  font-size: 12px;
-  color: var(--muted);
-}
-.answer-text {
-  background: #f8f6fb;
-  border: 1px solid var(--line);
-  padding: 20px;
-  border-radius: 8px;
-  font-size: 13px;
-  line-height: 1.8;
-  margin: 22px 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.button-row {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.review form > .primary {
-  margin-top: 15px;
-}
-@media (max-width: 1000px) {
-  .stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-@media (max-width: 600px) {
-  .admin-lesson {
-    flex-wrap: wrap;
-  }
-  .admin-lesson .actions {
-    margin-left: 50px;
-  }
-  .modal-backdrop {
-    padding: 10px;
-  }
-  .modal {
-    padding: 20px;
-  }
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
-  .table-panel {
-    padding: 15px;
-  }
-  .stats {
-    gap: 10px;
-  }
-  .stat {
-    padding: 17px;
-  }
-}
-
-.course-manager {
-  font-size: 12px;
-  max-width: 400px;
-}
-.course-manager summary {
-  cursor: pointer;
-  padding: 12px;
-}
-.course-manager .row {
-  padding: 10px;
-  border-bottom: 1px solid var(--line);
-}
+/* Umumiy UI stillari src/index.css ichida, ranglar va shriftlar :root orqali boshqariladi. */
 
 ```
 
 ## src/pages/Admin.jsx
 
 ```jsx
-import CourseManager from "../components/CourseManager";
+import { useState } from "react";
+import { Wallet } from "lucide-react";
+import Modal from "../components/Modal";
+import PaymentForm from "../components/PaymentForm";
 import { Link } from "react-router-dom";
-import {
-  Users,
-  BookOpen,
-  ClipboardCheck,
-  MessageSquare,
-  ArrowRight,
-} from "lucide-react";
 import { useApp } from "../context/AppContext";
-import { completed } from "../services/db";
+import { paymentSummary, money } from "../services/db";
+import CourseManager from "../components/CourseManager";
 import "./Admin.css";
 export default function Admin() {
-  const { data } = useApp();
+  const { data, notify } = useApp();
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [coursesOpen, setCoursesOpen] = useState(false);
   const students = data.users.filter((u) => u.role === "student");
-  const lessons = data.lessons.filter((l) => l.published);
+  const debt = students.reduce((n, u) => n + paymentSummary(data, u).debt, 0);
   return (
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">AI ACADEMY · ADMIN</div>
           <h1>Umumiy ko‘rinish</h1>
-          <p>Ta’lim jarayoni va o‘quvchilar natijalari bir joyda.</p>
+          <p>Kurslar, talabalar va natijalar bir joyda.</p>
         </div>
         <div className="button-row">
-          <CourseManager />
+          <button className="primary" onClick={() => setPaymentOpen(true)}>
+            <Wallet size={22} /> To‘lov qo‘shish
+          </button>
+          <CourseManager open={coursesOpen} onOpenChange={setCoursesOpen} />
           <Link className="primary" to="/admin/lessons">
-            + Dars qo‘shish
+            + Yangi dars
           </Link>
         </div>
       </div>
       <div className="stats">
         {[
-          [Users, "O‘quvchilar", students.length, "/admin/students"],
+          [students.length, "Talabalar", "/admin/students"],
+          [data.courses.length, "Kurslar", "/admin/lessons"],
           [
-            BookOpen,
-            "E’lon qilingan darslar",
-            lessons.length,
-            "/admin/lessons",
-          ],
-          [
-            ClipboardCheck,
-            "Kutilayotgan vazifalar",
             data.submissions.filter((s) => s.status === "pending").length,
+            "Kutilayotgan amaliy ishlar",
             "/admin/reviews",
           ],
-          [
-            MessageSquare,
-            "Yangi murojaatlar",
-            data.tickets.filter((t) => !t.reply).length,
-            "/admin/support",
-          ],
-        ].map(([Icon, title, n, to]) => (
-          <Link className="panel stat" to={to} key={title}>
-            <Icon size={21} />
-            <strong>{n}</strong>
-            <span>{title}</span>
-          </Link>
-        ))}
+          [money(debt), "Jami qarzdorlik", "/admin/finance"],
+        ].map(([n, t, to]) =>
+          t === "Kurslar" ? (
+            <button
+              className="panel stat"
+              key={t}
+              onClick={() => setCoursesOpen(true)}
+            >
+              <strong>{n}</strong>
+              <span>{t} →</span>
+            </button>
+          ) : (
+            <Link className="panel stat" key={t} to={to}>
+              <strong>{n}</strong>
+              <span>{t} →</span>
+            </Link>
+          ),
+        )}
       </div>
-      <section className="panel table-panel">
-        <div className="row">
-          <h3>O‘quvchilar progressi</h3>
-          <Link className="purple small" to="/admin/students">
-            Barchasi →
-          </Link>
-        </div>
+      <section className="panel detail-panel">
+        <h2>Talabalar</h2>
         <div className="table-scroll">
           <table>
             <thead>
               <tr>
-                <th>O‘quvchi</th>
-                <th>Holat</th>
-                <th>Yakunlangan darslar</th>
-                <th>Progress</th>
+                <th>Ism</th>
+                <th>Kurslar</th>
+                <th>To‘lov</th>
+                <th>Qarz</th>
               </tr>
             </thead>
             <tbody>
               {students.map((u) => {
-                const n = lessons.filter(
-                  (l) =>
-                    l.courseId === u.courseId && completed(data, u.id, l.id),
-                ).length;
+                const s = paymentSummary(data, u);
                 return (
                   <tr key={u.id}>
                     <td>
                       <Link className="purple" to={"/admin/students/" + u.id}>
-                        <strong>{u.name} →</strong>
+                        {u.name} →
                       </Link>
-                      <small>{u.email}</small>
                     </td>
                     <td>
-                      <span className={"badge " + (u.active ? "green" : "")}>
-                        {u.active ? "Faol" : "Bloklangan"}
-                      </span>
+                      {data.enrollments.filter((e) => e.userId === u.id).length}
                     </td>
-                    <td>
-                      {n}/
-                      {lessons.filter((l) => l.courseId === u.courseId).length}
-                    </td>
-                    <td>
-                      <div className="progress">
-                        <i
-                          style={{
-                            width:
-                              (lessons.length
-                                ? (n /
-                                    (lessons.filter(
-                                      (l) => l.courseId === u.courseId,
-                                    ).length || 1)) *
-                                  100
-                                : 0) + "%",
-                          }}
-                        />
-                      </div>
-                    </td>
+                    <td>{money(s.paid)}</td>
+                    <td>{money(s.debt)}</td>
                   </tr>
                 );
               })}
@@ -1274,19 +2078,16 @@ export default function Admin() {
           </table>
         </div>
       </section>
-      <div className="admin-note">
-        <BookOpen size={22} />
-        <div>
-          <strong>Kursingizni ishga tushiring</strong>
-          <p>
-            Darsga video yuklang, test kiriting va e’lon qiling. O‘quvchilar
-            vazifalarini “Vazifalar” bo‘limida tekshiring.
-          </p>
-        </div>
-        <Link to="/admin/lessons">
-          <ArrowRight size={20} />
-        </Link>
-      </div>
+      {paymentOpen && (
+        <Modal title="To‘lov qo‘shish" onClose={() => setPaymentOpen(false)}>
+          <PaymentForm
+            onSaved={() => {
+              setPaymentOpen(false);
+              notify("To‘lov saqlandi. Dashboard va moliya yangilandi.");
+            }}
+          />
+        </Modal>
+      )}
     </>
   );
 }
@@ -1312,16 +2113,19 @@ const blank = () => ({
   fileId: "",
   published: false,
   questions: [],
+  materials: [],
 });
 export default function AdminLessons() {
   const { data, update, notify } = useApp();
   const [draft, setDraft] = useState(null);
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [materials, setMaterials] = useState([]);
   const [error, setError] = useState("");
   function edit(l) {
     setDraft(structuredClone(l));
     setFile(null);
+    setMaterials([]);
     setError("");
   }
   function field(k, v) {
@@ -1357,6 +2161,24 @@ export default function AdminLessons() {
       setError("Faol dars uchun kamida bitta test savoli kiriting.");
       return;
     }
+    if (
+      !draft.title.trim() ||
+      !draft.task.trim() ||
+      draft.questions.some(
+        (q) => !q.text.trim() || q.options.some((o) => !o.trim()),
+      )
+    ) {
+      setError("Bo‘sh matn yoki javoblarni to‘ldiring.");
+      return;
+    }
+    if (
+      materials.some(
+        (f) => !/\.(pdf|xlsx?)$/i.test(f.name) || f.size > 20 * 1024 * 1024,
+      )
+    ) {
+      setError("PDF yoki Excel fayl tanlang (har biri 20 MB gacha).");
+      return;
+    }
     setBusy(true);
     try {
       const next = {
@@ -1368,13 +2190,22 @@ export default function AdminLessons() {
         next.fileId = await putFile(file);
         next.video = "";
       }
-      update((d) => {
+      next.materials = [...(draft.materials || [])];
+      for (const file of materials)
+        next.materials.push({
+          fileId: await putFile(file),
+          name: file.name,
+          size: file.size,
+        });
+      const ok = update((d) => {
         const i = d.lessons.findIndex((l) => l.id === next.id);
         if (i < 0) d.lessons.push(next);
         else d.lessons[i] = next;
       });
-      setDraft(null);
-      notify("Dars saqlandi.");
+      if (ok) {
+        setDraft(null);
+        notify("Dars saqlandi.");
+      }
     } catch {
       setError(
         "Fayl saqlanmadi. Brauzer xotirasi yoki fayl hajmini tekshiring.",
@@ -1385,17 +2216,22 @@ export default function AdminLessons() {
   }
   function remove(l) {
     if (
-      !confirm("“" + l.title + "” darsi o‘chirilsinmi? Test tarixi saqlanadi.")
+      !confirm(
+        "“" +
+          l.title +
+          "” darsi arxivlansinmi? Barcha natijalar tarixi saqlanadi.",
+      )
     )
       return;
     update((d) => {
-      d.lessons = d.lessons.filter((x) => x.id !== l.id);
-      d.submissions = d.submissions.filter((x) => x.lessonId !== l.id);
+      const item = d.lessons.find((x) => x.id === l.id);
+      item.published = false;
+      item.archived = true;
       // Topshirilgan testlar tarixini saqlab qolamiz.
       Object.keys(d.testSessions).forEach((k) => {
         if (d.testSessions[k].lessonId === l.id) delete d.testSessions[k];
       });
-      Object.values(d.progress).forEach((p) => delete p[l.id]);
+      // Video, test va amaliy ishlar tarixi saqlanadi.
     });
   }
   function move(i, by) {
@@ -1438,7 +2274,7 @@ export default function AdminLessons() {
                 {l.fileId || l.video ? "Video bor" : "Video yo‘q"}
               </p>
               <span className={"badge " + (l.published ? "green" : "")}>
-                {l.published ? "Faol" : "Nofaol"}
+                {l.archived ? "Arxivda" : l.published ? "Faol" : "Nofaol"}
               </span>
             </div>
             <div className="actions">
@@ -1452,6 +2288,7 @@ export default function AdminLessons() {
                   update((d) => {
                     const item = d.lessons.find((x) => x.id === l.id);
                     item.published = !item.published;
+                    if (item.published) item.archived = false;
                   });
                 }}
               >
@@ -1509,6 +2346,7 @@ export default function AdminLessons() {
                 Kurs
                 <select
                   required
+                  disabled={data.lessons.some((l) => l.id === draft.id)}
                   value={draft.courseId || ""}
                   onChange={(e) => field("courseId", e.target.value)}
                 >
@@ -1604,6 +2442,32 @@ export default function AdminLessons() {
                   onChange={(e) => field("task", e.target.value)}
                 />
               </label>
+              <label>
+                Qo‘shimcha materiallar (PDF, Excel; har biri 20 MB gacha)
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.xls,.xlsx"
+                  onChange={(e) => setMaterials(Array.from(e.target.files))}
+                />
+              </label>
+              {(draft.materials || []).map((m) => (
+                <div className="material-row" key={m.fileId}>
+                  <span>{m.name}</span>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() =>
+                      field(
+                        "materials",
+                        draft.materials.filter((x) => x.fileId !== m.fileId),
+                      )
+                    }
+                  >
+                    Olib tashlash
+                  </button>
+                </div>
+              ))}
               <div className="row">
                 <h3>Test savollari</h3>
                 <button
@@ -1701,35 +2565,33 @@ export default function AdminLessons() {
 
 ```jsx
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useApp } from "../context/AppContext";
+import { reviewPractice, downloadMaterial } from "../services/db";
 import "./Admin.css";
 export default function AdminReviews() {
-  const { data, update, notify } = useApp();
+  const { data, user, update, notify } = useApp();
   const [filter, setFilter] = useState("pending");
-  const [feedback, setFeedback] = useState({});
-  function review(id, status) {
-    update((d) => {
-      const s = d.submissions.find((x) => x.id === id);
-      s.status = status;
-      s.feedback = feedback[id] ?? s.feedback ?? "";
-    });
-    notify(
-      status === "approved"
-        ? "Vazifa tasdiqlandi."
-        : "Vazifa qayta ishlashga yuborildi.",
-    );
-  }
-  const items = data.submissions.filter(
+  const list = data.submissions.filter(
     (s) => filter === "all" || s.status === filter,
   );
+  function review(e, s) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    update((d) =>
+      reviewPractice(
+        d,
+        s.id,
+        f.get("status"),
+        f.get("grade"),
+        f.get("feedback").trim(),
+        user.id,
+      ),
+    );
+  }
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Vazifalarni tekshirish</h1>
-          <p>O‘quvchilarga fikr bildiring va natijalarini tasdiqlang.</p>
-        </div>
-      </div>
+      <h1>Amaliy ishlarni tekshirish</h1>
       <div className="tabs">
         {[
           ["pending", "Kutilayotgan"],
@@ -1746,54 +2608,63 @@ export default function AdminReviews() {
           </button>
         ))}
       </div>
-      {!items.length && (
-        <div className="panel empty">Bu bo‘limda vazifalar yo‘q.</div>
-      )}
-      {items.map((s) => (
-        <article className="panel review" key={s.id}>
-          <div className="row">
-            <div>
-              <h3>
-                {data.users.find((u) => u.id === s.userId)?.name ||
-                  "O‘chirilgan o‘quvchi"}
-              </h3>
-              <p>{data.lessons.find((l) => l.id === s.lessonId)?.title}</p>
-            </div>
-            <span className="badge">
-              {
-                {
-                  pending: "Kutilmoqda",
-                  approved: "Tasdiqlangan",
-                  rejected: "Qaytarilgan",
-                }[s.status]
-              }
-            </span>
-          </div>
-          <div className="answer-text">{s.answer}</div>
-          <label>
-            O‘quvchiga izoh
-            <textarea
-              value={feedback[s.id] ?? s.feedback}
-              onChange={(e) =>
-                setFeedback({ ...feedback, [s.id]: e.target.value })
-              }
-              placeholder="Tavsiyangizni yozing…"
-            />
-          </label>
-          <div className="button-row">
-            <button
-              className="primary"
-              onClick={() => review(s.id, "approved")}
-            >
-              ✓ Tasdiqlash
-            </button>
+      {!list.length && <div className="panel empty">Amaliy ishlar yo‘q.</div>}
+      {[...list].reverse().map((s) => (
+        <article className="panel detail-panel" key={s.id}>
+          <Link className="purple" to={"/admin/students/" + s.userId}>
+            {data.users.find((u) => u.id === s.userId)?.name} →
+          </Link>
+          <h2>{s.lessonTitle}</h2>
+          <p className="answer-text">{s.answer}</p>
+          {s.attachment && (
             <button
               className="secondary"
-              onClick={() => review(s.id, "rejected")}
+              onClick={() =>
+                downloadMaterial(s.attachment).catch((e) => notify(e.message))
+              }
             >
-              Qayta ishlashga yuborish
+              {s.attachment.name} ↓
             </button>
-          </div>
+          )}
+          <p>{new Date(s.createdAt).toLocaleString("uz-UZ")}</p>
+          {s.status === "pending" ? (
+            <form onSubmit={(e) => review(e, s)}>
+              <div className="form-grid">
+                <label>
+                  Baho (0–100)
+                  <input
+                    name="grade"
+                    type="number"
+                    required
+                    min="0"
+                    max="100"
+                    step="1"
+                  />
+                </label>
+                <label>
+                  Natija
+                  <select name="status">
+                    <option value="approved">Tasdiqlash</option>
+                    <option value="rejected">Qayta ishlashga yuborish</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                Izoh
+                <textarea name="feedback" required minLength={3} />
+              </label>
+              <button className="primary">Natijani saqlash</button>
+            </form>
+          ) : (
+            <>
+              <p>
+                Baho: {s.grade ?? "—"} / 100 ·{" "}
+                {s.status === "approved" ? "Tasdiqlangan" : "Qaytarilgan"}
+              </p>
+              <p>{s.feedback}</p>
+              <p>Bu natija tarixga saqlangan va qayta tahrirlanmaydi.</p>
+            </>
+          )}
         </article>
       ))}
     </>
@@ -1805,276 +2676,93 @@ export default function AdminReviews() {
 ## src/pages/AdminStudents.jsx
 
 ```jsx
-import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { Pencil, Trash2, Search } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
-import { uid, completed } from "../services/db";
+import { enrollmentsFor, paymentSummary, money } from "../services/db";
+import StudentForm from "../components/StudentForm";
 import "./Admin.css";
 export default function AdminStudents() {
-  const { data, update, notify } = useApp();
-  const navigate = useNavigate();
-  const [search, setSearch] = useState("");
-  const [draft, setDraft] = useState(null);
-  const [error, setError] = useState("");
-  const lessons = data.lessons.filter((l) => l.published);
-  function save(e) {
-    e.preventDefault();
-    const email = draft.email.trim().toLowerCase();
-    if (
-      data.users.some(
-        (u) => u.id !== draft.id && u.email.toLowerCase() === email,
-      )
-    ) {
-      setError("Ushbu email allaqachon mavjud.");
-      return;
-    }
-    const course = data.courses.find((c) => c.id === draft.courseId);
-    if (!course) {
-      setError("Kursni tanlang.");
-      return;
-    }
-    const previous = data.users.find((u) => u.id === draft.id);
-    if (
-      previous &&
-      previous.courseId !== draft.courseId &&
-      data.payments.some((p) => p.userId === draft.id)
-    ) {
-      setError("To‘lovli hisobning kursini almashtirib bo‘lmaydi.");
-      return;
-    }
-    const ok = update((d) => {
-      const u = {
-        ...draft,
-        email,
-        name: draft.name.trim(),
-        courseFee:
-          previous?.courseId === course.id
-            ? (previous.courseFee ?? course.price)
-            : course.price,
-      };
-      const i = d.users.findIndex((x) => x.id === u.id);
-      if (i < 0) d.users.push(u);
-      else d.users[i] = u;
-    });
-    if (ok) {
-      setDraft(null);
-      notify("O‘quvchi saqlandi.");
-      navigate("/admin/students/" + draft.id);
-    }
-  }
-  function remove(u) {
-    if (!confirm(u.name + " va uning barcha natijalari o‘chirilsinmi?")) return;
-    update((d) => {
-      d.users = d.users.filter((x) => x.id !== u.id);
-      delete d.progress[u.id];
-      Object.keys(d.testSessions).forEach((k) => {
-        if (d.testSessions[k].userId === u.id) delete d.testSessions[k];
-      });
-      for (const k of ["submissions", "attempts", "tickets", "payments"])
-        d[k] = d[k].filter((x) => x.userId !== u.id);
-    });
-  }
+  const { data } = useApp();
+  const go = useNavigate();
+  const [query, setQuery] = useState(""),
+    [draft, setDraft] = useState(undefined);
+  const list = data.users.filter(
+    (u) =>
+      u.role === "student" &&
+      (u.name + " " + u.email).toLowerCase().includes(query.toLowerCase()),
+  );
   return (
     <>
       <div className="page-heading">
         <div>
-          <h1>O‘quvchilar</h1>
+          <h1>Talabalar</h1>
           <p>
-            {data.users.filter((u) => u.role === "student").length} ta o‘quvchi
-            · Hisoblar va natijalar nazorati
+            {data.users.filter((u) => u.role === "student").length} talaba · har
+            biri uchun shaxsiy bo‘lim
           </p>
         </div>
-        <button
-          className="primary"
-          onClick={() => {
-            setError("");
-            setDraft({
-              id: uid(),
-              name: "",
-              email: "",
-              password: "",
-              role: "student",
-              courseId: data.courses[0]?.id || "",
-              createdAt: new Date().toISOString(),
-              active: true,
-            });
-          }}
-        >
-          + O‘quvchi qo‘shish
+        <button className="primary" onClick={() => setDraft(null)}>
+          + Talaba qo‘shish
         </button>
       </div>
-      <div className="search-box">
-        <Search size={17} />
-        <input
-          aria-label="O‘quvchini qidirish"
-          placeholder="Ism yoki email bo‘yicha qidirish…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-      <div className="panel table-panel table-scroll">
+      <input
+        className="search-box"
+        aria-label="Qidirish"
+        placeholder="Ism yoki email orqali qidiring"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      <div className="panel table-scroll">
         <table>
           <thead>
             <tr>
-              <th>O‘quvchi</th>
-              <th>Progress</th>
-              <th>Eng yaxshi test</th>
+              <th>Talaba</th>
+              <th>Kurslar</th>
+              <th>Qarz</th>
               <th>Holat</th>
-              <th>Amallar</th>
+              <th>Amal</th>
             </tr>
           </thead>
           <tbody>
-            {data.users
-              .filter(
-                (u) =>
-                  u.role === "student" &&
-                  (u.name + " " + u.email)
-                    .toLowerCase()
-                    .includes(search.toLowerCase()),
-              )
-              .map((u) => (
-                <tr key={u.id}>
-                  <td>
-                    <Link className="purple" to={"/admin/students/" + u.id}>
-                      <strong>{u.name} →</strong>
-                    </Link>
-                    <small>{u.email}</small>
-                    <small>
-                      {data.courses.find((c) => c.id === u.courseId)?.title}
-                    </small>
-                  </td>
-                  <td>
-                    {
-                      lessons.filter(
-                        (l) =>
-                          l.courseId === u.courseId &&
-                          completed(data, u.id, l.id),
-                      ).length
-                    }
-                    /{lessons.filter((l) => l.courseId === u.courseId).length}{" "}
-                    dars
-                  </td>
-                  <td>
-                    {data.attempts.some((a) => a.userId === u.id)
-                      ? Math.max(
-                          ...data.attempts
-                            .filter((a) => a.userId === u.id)
-                            .map((a) => a.score),
-                        ) + "%"
-                      : "—"}
-                  </td>
-                  <td>
-                    <span className={"badge " + (u.active ? "green" : "")}>
-                      {u.active ? "Faol" : "Bloklangan"}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="actions">
-                      <button
-                        aria-label="Tahrirlash"
-                        onClick={() => {
-                          setDraft({ ...u });
-                          setError("");
-                        }}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      <button
-                        aria-label="O‘chirish"
-                        className="danger"
-                        onClick={() => remove(u)}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+            {list.map((u) => (
+              <tr key={u.id}>
+                <td>
+                  <Link className="purple" to={"/admin/students/" + u.id}>
+                    {u.name} →
+                  </Link>
+                  <small>{u.email}</small>
+                </td>
+                <td>
+                  {enrollmentsFor(data, u.id)
+                    .map(
+                      (e) =>
+                        data.courses.find((c) => c.id === e.courseId)?.title,
+                    )
+                    .join(", ") || "—"}
+                </td>
+                <td>{money(paymentSummary(data, u).debt)}</td>
+                <td>{u.active ? "Faol" : "Bloklangan"}</td>
+                <td>
+                  <button className="secondary" onClick={() => setDraft(u)}>
+                    Tahrirlash
+                  </button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
+        {!list.length && <p className="empty">Talabalar topilmadi.</p>}
       </div>
-      {draft && (
-        <div className="modal-backdrop">
-          <section
-            className="modal narrow"
-            role="dialog"
-            aria-modal="true"
-            aria-label="O‘quvchi hisobi"
-          >
-            <div className="row">
-              <h2>O‘quvchi hisobi</h2>
-              <button className="ghost" onClick={() => setDraft(null)}>
-                ×
-              </button>
-            </div>
-            <form onSubmit={save}>
-              <label>
-                Kurs
-                <select
-                  required
-                  value={draft.courseId || ""}
-                  onChange={(e) =>
-                    setDraft({ ...draft, courseId: e.target.value })
-                  }
-                >
-                  <option value="">Kursni tanlang</option>
-                  {data.courses.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title} — {Number(c.price).toLocaleString("uz-UZ")} so‘m
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                To‘liq ism
-                <input
-                  required
-                  minLength={3}
-                  value={draft.name}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                />
-              </label>
-              <label>
-                Email
-                <input
-                  required
-                  type="email"
-                  value={draft.email}
-                  onChange={(e) =>
-                    setDraft({ ...draft, email: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Demo parol
-                <input
-                  required
-                  minLength={8}
-                  type="password"
-                  value={draft.password}
-                  onChange={(e) =>
-                    setDraft({ ...draft, password: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Holat
-                <select
-                  value={String(draft.active)}
-                  onChange={(e) =>
-                    setDraft({ ...draft, active: e.target.value === "true" })
-                  }
-                >
-                  <option value="true">Faol</option>
-                  <option value="false">Bloklangan</option>
-                </select>
-              </label>
-              {error && <p className="error">{error}</p>}
-              <button className="primary">Saqlash</button>
-            </form>
-          </section>
-        </div>
+      {draft !== undefined && (
+        <StudentForm
+          student={draft}
+          onClose={() => setDraft(undefined)}
+          onSaved={(id) => {
+            setDraft(undefined);
+            go("/admin/students/" + id);
+          }}
+        />
       )}
     </>
   );
@@ -2143,117 +2831,25 @@ export default function AdminSupport() {
 ## src/pages/Certificate.css
 
 ```css
-.certificate-layout {
-  max-width: 900px;
-  margin: 35px auto;
-}
 .certificate {
-  padding: 38px 30px;
+  margin: 30px 0;
+  padding: 45px 25px;
+  border: 8px double var(--primary-border);
+  background: var(--surface);
   text-align: center;
-  background: linear-gradient(135deg, #fbfaff, #fff);
-  border: 8px double #bba2e7;
-  outline: 1px solid #e0d4f1;
-  outline-offset: 5px;
-  position: relative;
 }
 .cert-brand {
-  color: var(--purple);
-  font-size: 17px;
-  font-weight: 800;
-}
-.cert-overline {
-  font-size: 8px;
-  letter-spacing: 2px;
-  display: block;
-  margin-top: 30px;
-  color: #8d7ba7;
+  color: var(--primary);
+  font-size: var(--fs-h2);
+  font-weight: 700;
 }
 .certificate h2 {
-  font-size: 34px;
-  letter-spacing: 6px;
-  margin: 18px 0 25px;
-}
-.certificate p {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.8;
+  color: var(--primary);
+  font-size: var(--fs-title);
+  letter-spacing: 3px;
 }
 .certificate h3 {
-  font-size: 27px;
-  margin: 18px 0;
-  border-bottom: 1px solid #e4d9f0;
-  padding-bottom: 20px;
-}
-.cert-bottom {
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  margin: 27px 0;
-}
-.cert-bottom strong {
-  font-size: 11px;
-}
-.cert-bottom small {
-  display: block;
-  font-size: 9px;
-  color: var(--muted);
-  margin-top: 5px;
-}
-.seal {
-  background: #fff2ce;
-  color: #bd8a27;
-  border: 3px double #dfba67;
-  border-radius: 50%;
-  padding: 16px;
-}
-.certificate > small {
-  font-size: 8px;
-  color: #a89ab8;
-}
-.cert-requirements {
-  padding: 25px;
-  margin-top: 30px;
-}
-.cert-requirements h3 {
-  font-size: 15px;
-}
-.cert-requirements p {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  font-size: 12px;
-  color: var(--muted);
-}
-.cert-requirements svg {
-  color: #46a378;
-}
-.cert-requirements > small {
-  display: block;
-  font-size: 10px;
-  color: var(--muted);
-  margin-top: 14px;
-}
-@media print {
-  .sidebar,
-  .topbar,
-  footer,
-  .page-heading,
-  .cert-requirements,
-  .toast {
-    display: none !important;
-  }
-  .main-wrap {
-    margin: 0;
-  }
-  main {
-    padding: 25px;
-  }
-  .certificate-layout {
-    width: 100%;
-  }
-  .certificate {
-    break-inside: avoid;
-  }
+  font-size: var(--fs-h2);
 }
 
 ```
@@ -2261,107 +2857,118 @@ export default function AdminSupport() {
 ## src/pages/Certificate.jsx
 
 ```jsx
-import { Award, CheckCircle, Lock, Printer } from "lucide-react";
+import { useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
-import { studentLessons, completed } from "../services/db";
+import {
+  enrollmentsFor,
+  hasCourse,
+  courseResult,
+  issueCertificate,
+} from "../services/db";
+import { downloadCertificate } from "../services/certificate";
 import "./Certificate.css";
 export default function Certificate() {
-  const { data, user } = useApp();
-  const lessons = studentLessons(data, user.id).filter((l) => l.published);
-  const count = lessons.filter((l) => completed(data, user.id, l.id)).length;
-  const ready =
-    lessons.length > 0 &&
-    count === lessons.length &&
-    lessons.every(
-      (l) =>
-        data.progress[user.id]?.[l.id]?.watched &&
-        data.submissions.some(
-          (s) =>
-            s.userId === user.id &&
-            s.lessonId === l.id &&
-            s.status === "approved",
-        ),
+  const { courseId } = useParams();
+  const { data, user, update, notify } = useApp();
+  const [busy, setBusy] = useState(false);
+  if (!courseId)
+    return (
+      <>
+        <h1>Sertifikatlar</h1>
+        <div className="course-grid">
+          {enrollmentsFor(data, user.id).map((e) => {
+            const result = courseResult(data, user.id, e.courseId);
+            return (
+              <Link
+                className="panel course-card"
+                key={e.id}
+                to={"/student/certificate/" + e.courseId}
+              >
+                <h2>{data.courses.find((c) => c.id === e.courseId)?.title}</h2>
+                <p>
+                  {result.ready ||
+                  data.certificates.some(
+                    (c) => c.userId === user.id && c.courseId === e.courseId,
+                  )
+                    ? "Sertifikat tayyor"
+                    : "Kursni yakunlang"}
+                </p>
+              </Link>
+            );
+          })}
+        </div>
+      </>
     );
+  if (!hasCourse(data, user.id, courseId)) return <p>Kursga kirish yopiq.</p>;
+  const result = courseResult(data, user.id, courseId),
+    existing = data.certificates.find(
+      (c) => c.userId === user.id && c.courseId === courseId,
+    ),
+    course = data.courses.find((c) => c.id === courseId);
+  async function download() {
+    setBusy(true);
+    try {
+      let cert = existing;
+      if (!cert) {
+        const ok = update((d) => {
+          cert = issueCertificate(d, user.id, courseId);
+        });
+        if (!ok) return;
+      }
+      await downloadCertificate(cert);
+    } catch (e) {
+      notify("PDF tayyorlanmadi: " + e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">NATIJANGIZGA MUNOSIB E’TIROF</div>
-          <h1>Sertifikat</h1>
-          <p>Kursni muvaffaqiyatli yakunlang va yutug‘ingizni nishonlang.</p>
-        </div>
-        <Award className="purple" size={30} />
-      </div>
-      <div className="certificate-layout">
-        <div className={"certificate " + (!ready ? "preview" : "")}>
-          <div className="cert-brand">✦ AI Academy</div>
-          <span className="cert-overline">
-            MUVAFFAQIYATLI TAMOMLAGANLIK UCHUN
-          </span>
-          <h2>SERTIFIKAT</h2>
-          <p>Ushbu sertifikat egasi</p>
-          <h3>{user.name}</h3>
-          <p>
-            «{data.courses.find((c) => c.id === user.courseId)?.title}»
-            kursidagi barcha darslar,
-            <br />
-            amaliy vazifalar va testlarni muvaffaqiyatli yakunladi.
-          </p>
-          <div className="cert-bottom">
-            <div>
-              <strong>
-                {ready ? new Date().toLocaleDateString("uz-UZ") : "—"}
-              </strong>
-              <small>Sana</small>
-            </div>
-            <div className="seal">
-              <Award size={35} />
-            </div>
-            <div>
-              <strong>AI Academy</strong>
-              <small>Ta’lim jamoasi</small>
-            </div>
-          </div>
-          <small>
-            ID: AI-{user.id.slice(0, 8).toUpperCase()} ·{" "}
-            {ready ? "Demo sertifikat" : "NAMUNA — HALI BERILMAGAN"}
-          </small>
-        </div>
-        <div className="panel cert-requirements">
-          <h3>Sertifikat olish shartlari</h3>
-          <p>
-            <CheckCircle size={17} /> Barcha videolarni oxirigacha ko‘rish
-          </p>
-          <p>
-            <CheckCircle size={17} /> Testlardan 70% dan yuqori olish
-          </p>
-          <p>
-            <CheckCircle size={17} /> Vazifalarni admin tasdiqlashi
-          </p>
-          <div className="progress">
-            <i
-              style={{
-                width:
-                  (lessons.length ? (count / lessons.length) * 100 : 0) + "%",
-              }}
-            />
-          </div>
-          <p>
-            {count}/{lessons.length} dars to‘liq yakunlangan
-          </p>
-          <button
-            className="primary"
-            disabled={!ready}
-            onClick={() => window.print()}
-          >
-            {ready ? <Printer size={16} /> : <Lock size={16} />}{" "}
-            {ready ? "Sertifikatni PDF saqlash" : "Hozircha yopiq"}
-          </button>
-          <small>
-            Ochilgach, chop etish oynasida “Save as PDF” ni tanlang.
-          </small>
-        </div>
-      </div>
+      <Link className="back" to="/student/certificate">
+        ← Sertifikatlar
+      </Link>
+      <h1>{course.title}</h1>
+      <section className="certificate">
+        <div className="cert-brand">AI Academy</div>
+        <h2>SERTIFIKAT</h2>
+        <p>
+          {existing
+            ? "Kursni muvaffaqiyatli yakunlagan"
+            : "Sertifikat namunasi — hali berilmagan"}
+        </p>
+        <h3>{existing?.name || user.name}</h3>
+        <p>{existing?.title || course.title}</p>
+        <strong>
+          Yakuniy test bahosi: {(existing?.score ?? result.average).toFixed(2)}%
+        </strong>
+        {existing && (
+          <p>{new Date(existing.createdAt).toLocaleDateString("uz-UZ")}</p>
+        )}
+      </section>
+      <section className="panel detail-panel">
+        <h2>Olish shartlari</h2>
+        <p>
+          Testlar: {result.tests}/{result.lessons.length} — har biridan 70% dan
+          yuqori.
+        </p>
+        <p>
+          Videolar: {result.watched}/{result.lessons.length}
+        </p>
+        <p>
+          Tasdiqlangan amaliy ishlar: {result.practical}/{result.lessons.length}
+        </p>
+        <p>
+          Yakuniy baho — har bir darsning eng yaxshi test natijalari o‘rtachasi.
+        </p>
+        <button
+          className="primary"
+          disabled={busy || (!existing && !result.ready)}
+          onClick={download}
+        >
+          {busy ? "PDF tayyorlanmoqda…" : "Sertifikatni PDF yuklab olish"}
+        </button>
+      </section>
     </>
   );
 }
@@ -2371,417 +2978,354 @@ export default function Certificate() {
 ## src/pages/Course.css
 
 ```css
-.course-hero {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 30px 34px;
-  background: linear-gradient(112deg, #eee8fc, #f3efff 60%, #e9ddff);
-  border: 1px solid #e7dff5;
-  border-radius: 15px;
-  margin: 27px 0;
-}
-.hero-tag {
-  font-size: 9px;
-  color: #805abb;
-  letter-spacing: 1.3px;
-}
-.course-hero h2 {
-  font-size: 26px;
-  line-height: 1.4;
-  letter-spacing: -0.6px;
-  margin: 12px 0;
-}
-.course-hero p {
-  font-size: 12px;
-  color: #827197;
-}
-.hero-details {
-  display: flex;
-  gap: 20px;
-  margin-top: 24px;
-  color: #7a668f;
-  font-size: 10px;
-}
-.hero-details span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.hero-ai {
-  font-size: 76px;
-  font-weight: 700;
-  letter-spacing: -5px;
-  background: linear-gradient(140deg, #b897ee, #6540b9);
-  color: #f6edff;
-  padding: 19px 29px;
-  border-radius: 23px;
-  transform: rotate(-9deg);
-  border: 3px solid #c8b0ef;
-  box-shadow:
-    9px 9px 0 #c5b0e4,
-    18px 20px 35px #8e6ac536;
-  margin: 0 40px;
-}
-.hero-ai small {
-  display: block;
-  font-size: 5px;
-  letter-spacing: 1.3px;
-}
-.course-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 236px;
-  gap: 24px;
-}
-.progress-card {
-  padding: 22px;
-}
-.progress-card strong {
-  font-size: 12px;
-}
-.progress {
-  height: 7px;
-  background: #eeeaf4;
-  border-radius: 10px;
-  overflow: hidden;
-  margin: 17px 0 11px;
-}
-.progress i {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, #8656ff, #6332e6);
-  border-radius: 10px;
-  transition: width 0.3s;
-}
-.section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 27px 0 16px;
-}
-.section-heading h3 {
-  font-size: 15px;
-  margin: 0;
-}
-.section-heading span {
-  font-size: 11px;
-  color: var(--muted);
-}
-.lesson-list {
-  display: grid;
-  gap: 11px;
-}
-.lesson-row {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  background: #fff;
-  border: 1px solid var(--line);
-  padding: 19px 17px;
-  border-radius: 12px;
-  min-height: 85px;
-}
-.lesson-row.current {
-  border-color: #bba1f4;
-  box-shadow: 0 3px 14px #6d37ee06;
-}
-.lesson-number {
-  background: #f0edf5;
-  color: #7b748c;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  font-size: 12px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-.current .lesson-number {
-  background: var(--purple);
-  color: white;
-  box-shadow: 0 0 0 4px #eee7ff;
-}
-.lesson-number.done {
-  background: #e4f6ec;
-  color: #269761;
-}
-.lesson-text {
-  flex: 1;
-}
-.lesson-text h3 {
-  font-size: 12px;
-  margin: 0 0 9px;
-}
-.lesson-text p {
-  font-size: 9px;
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin: 0;
-}
-.lesson-text b {
-  font-weight: 400;
-}
-.lesson-row.locked {
-  background: #f7f6fa;
-}
-.lesson-row > svg {
-  color: #a29aad;
-}
-.done-link {
-  color: #309564;
-  font-size: 10px;
-  display: flex;
-  gap: 6px;
-}
-.next-card {
-  padding: 22px;
-}
-.next-card h3,
-.certificate-teaser h3 {
-  font-size: 14px;
-}
-.next-card p,
-.certificate-teaser p {
-  font-size: 11px;
-  line-height: 1.9;
-  color: var(--muted);
-}
-.quote-line {
-  height: 1px;
-  background: var(--line);
-  margin: 20px 0;
-}
-.next-card small {
-  font-size: 8px;
-  letter-spacing: 1.2px;
-  color: #a097b0;
-}
-.certificate-teaser {
-  padding: 24px 20px;
-  margin-top: 20px;
-  background: #f0eafb;
-  border: 1px solid #e7ddf8;
-  border-radius: 12px;
-}
-.certificate-teaser > svg {
-  color: #9165d9;
-}
-.certificate-teaser a {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  font-size: 11px;
-  color: var(--purple);
-  margin-top: 19px;
-}
-@media (max-width: 1100px) {
-  .course-columns {
-    grid-template-columns: 1fr;
-  }
-  .course-columns > aside {
-    display: none;
-  }
-  .hero-ai {
-    margin: 0 10px;
-  }
-  .compact {
-    font-size: 10px !important;
-  }
-}
-@media (max-width: 600px) {
-  .course-hero {
-    padding: 22px;
-  }
-  .course-hero h2 {
-    font-size: 21px;
-  }
-  .hero-ai {
-    display: none;
-  }
-  .hero-details {
-    gap: 12px;
-  }
-  .lesson-row {
-    flex-wrap: wrap;
-    padding: 17px 13px;
-    gap: 11px;
-  }
-  .lesson-row .primary {
-    margin-left: 44px;
-  }
-  .page-heading > .pill {
-    display: none;
-  }
-}
+/* Umumiy UI stillari src/index.css ichida, ranglar va shriftlar :root orqali boshqariladi. */
 
 ```
 
 ## src/pages/Course.jsx
 
 ```jsx
-import { Link } from "react-router-dom";
-import {
-  ArrowRight,
-  Check,
-  Lock,
-  Play,
-  Clock,
-  Sparkles,
-  BookOpen,
-  Award,
-} from "lucide-react";
+import { Link, useParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
-import { studentLessons, completed, unlocked } from "../services/db";
+import {
+  enrollmentsFor,
+  courseResult,
+  unlocked,
+  passed,
+  hasCourse,
+  money,
+} from "../services/db";
 import "./Course.css";
 export default function Course() {
+  const { courseId } = useParams();
   const { data, user } = useApp();
-  const list = studentLessons(data, user.id).filter((l) => l.published);
-  const count = list.filter((l) => completed(data, user.id, l.id)).length;
-  const percent = list.length ? Math.round((count / list.length) * 100) : 0;
+  if (!courseId)
+    return (
+      <>
+        <div className="page-heading">
+          <div>
+            <h1>Mening kurslarim</h1>
+            <p>
+              Sizga biriktirilgan {enrollmentsFor(data, user.id).length} ta kurs
+            </p>
+          </div>
+        </div>
+        <div className="course-grid">
+          {enrollmentsFor(data, user.id).map((e) => {
+            const c = data.courses.find((c) => c.id === e.courseId);
+            const r = courseResult(data, user.id, e.courseId);
+            return (
+              <Link
+                key={e.id}
+                className="panel course-card"
+                to={"/student/course/" + e.courseId}
+              >
+                <span className="badge">{r.lessons.length} dars</span>
+                <h2>{c?.title}</h2>
+                <p>{c?.description}</p>
+                <div className="progress">
+                  <i
+                    style={{
+                      width:
+                        (r.lessons.length
+                          ? (r.tests / r.lessons.length) * 100
+                          : 0) + "%",
+                    }}
+                  />
+                </div>
+                <p>
+                  {r.tests}/{r.lessons.length} testdan o‘tilgan
+                </p>
+                <strong>Kursni ochish →</strong>
+              </Link>
+            );
+          })}
+        </div>
+        {!enrollmentsFor(data, user.id).length && (
+          <p className="empty">Hozircha kurs biriktirilmagan.</p>
+        )}
+      </>
+    );
+  const c = data.courses.find((c) => c.id === courseId);
+  if (!c || !hasCourse(data, user.id, courseId))
+    return (
+      <div className="empty">
+        Kursga kirish yopiq. <Link to="/student">Kurslarim</Link>
+      </div>
+    );
+  const r = courseResult(data, user.id, courseId),
+    e = enrollmentsFor(data, user.id).find((e) => e.courseId === courseId);
+  return (
+    <>
+      <Link className="back" to="/student">
+        ← Mening kurslarim
+      </Link>
+      <div className="page-heading">
+        <div>
+          <h1>{c.title}</h1>
+          <p>{c.description}</p>
+        </div>
+        <span className="badge">{money(e.fee)}</span>
+      </div>
+      <div className="stats">
+        <div className="panel stat">
+          <strong>
+            {r.tests}/{r.lessons.length}
+          </strong>
+          <span>Testdan o‘tilgan</span>
+        </div>
+        <div className="panel stat">
+          <strong>{r.watched}</strong>
+          <span>Video ko‘rilgan</span>
+        </div>
+        <div className="panel stat">
+          <strong>{r.practical}</strong>
+          <span>Amaliy tasdiqlangan</span>
+        </div>
+      </div>
+      <div className="lesson-list">
+        {r.lessons.map((l, i) => {
+          const open = unlocked(data, user.id, l.id);
+          return (
+            <article className="panel lesson-row" key={l.id}>
+              <span className="lesson-number">{i + 1}</span>
+              <div className="grow">
+                <h3>{l.title}</h3>
+                <p>
+                  {l.duration} daqiqa · {l.questions.length} savol
+                </p>
+              </div>
+              {open ? (
+                <Link className="primary" to={"/student/lesson/" + l.id}>
+                  {passed(data, user.id, l.id)
+                    ? "Qayta ko‘rish"
+                    : "Darsni ochish"}
+                </Link>
+              ) : (
+                <span className="badge">Yopiq</span>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      {!r.lessons.length && <p>Hozircha faol dars yo‘q.</p>}
+      <Link
+        className="secondary inline-button"
+        to={"/student/certificate/" + courseId}
+      >
+        Kurs sertifikati →
+      </Link>
+    </>
+  );
+}
+
+```
+
+## src/pages/Finance.jsx
+
+```jsx
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { useApp } from "../context/AppContext";
+import {
+  paymentSummary,
+  enrollmentSummary,
+  money,
+  localDate,
+} from "../services/db";
+import PaymentForm from "../components/PaymentForm";
+import "./Admin.css";
+export default function Finance() {
+  const { data } = useApp();
+  const [debtors, setDebtors] = useState(false),
+    [query, setQuery] = useState(""),
+    [from, setFrom] = useState(""),
+    [to, setTo] = useState("");
+  const students = data.users.filter((u) => u.role === "student");
+  const rows = students.map((u) => ({ u, ...paymentSummary(data, u) }));
+  const totals = rows.reduce(
+    (a, r) => {
+      for (const k of ["fee", "paid", "debt", "credit"]) a[k] += r[k];
+      return a;
+    },
+    { fee: 0, paid: 0, debt: 0, credit: 0 },
+  );
+  const payments = data.payments.filter(
+    (p) => !p.voidedAt && (!from || p.date >= from) && (!to || p.date <= to),
+  );
+  const filtered = rows.filter(
+    (r) =>
+      (!debtors || r.debt > 0) &&
+      (r.u.name + " " + r.u.email).toLowerCase().includes(query.toLowerCase()),
+  );
   return (
     <>
       <div className="page-heading">
         <div>
-          <div className="eyebrow">SIZNING BILIM SARI YO‘LINGIZ</div>
-          <h1>
-            {data.courses.find((c) => c.id === user.courseId)?.title ||
-              "Mening kursim"}
-          </h1>
-          <p>
-            Yangi bilimlar, yangi imkoniyatlar. Bugun ham bir qadam oldinga.
-          </p>
+          <h1>Moliya</h1>
+          <p>Kurslar bo‘yicha to‘lovlar va qarzdorlik nazorati</p>
         </div>
-        <span className="pill">
-          <Sparkles size={14} />{" "}
-          {data.courses.find((c) => c.id === user.courseId)?.title}
-        </span>
       </div>
-      <section className="course-hero">
-        <div>
-          <span className="hero-tag">AMALIY ONLAYN KURS</span>
-          <h2>
-            Sun’iy intellektni
-            <br />
-            o‘z imkoniyatingizga aylantiring.
-          </h2>
-          <p>G‘oyadan ilk loyihangizgacha — birgalikda.</p>
-          <div className="hero-details">
-            <span>
-              <BookOpen size={14} /> {list.length} ta dars
-            </span>
-            <span>
-              <Clock size={14} />{" "}
-              {list.reduce((s, l) => s + Number(l.duration), 0)} daqiqa
-            </span>
-            <span>
-              <Award size={14} /> Sertifikat
-            </span>
-          </div>
+      <div className="stats">
+        <div className="panel stat">
+          <strong>{students.length}</strong>
+          <span>Talabalar</span>
         </div>
-        <div className="hero-ai">
-          AI<small>THE FUTURE IS YOURS</small>
+        <div className="panel stat">
+          <strong>{money(totals.fee)}</strong>
+          <span>Jami shartnoma qiymati</span>
+        </div>
+        <div className="panel stat">
+          <strong>{money(totals.paid)}</strong>
+          <span>To‘langan</span>
+        </div>
+        <button className="panel stat" onClick={() => setDebtors(true)}>
+          <strong>{rows.filter((r) => r.debt > 0).length}</strong>
+          <span>Qarzdorlar →</span>
+        </button>
+        <div className="panel stat">
+          <strong>{money(totals.debt)}</strong>
+          <span>Jami qarz</span>
+        </div>
+        <div className="panel stat">
+          <strong>{money(totals.credit)}</strong>
+          <span>Avvalgi ortiqcha to‘lov</span>
+        </div>
+      </div>
+      <section className="panel detail-panel">
+        <h2>To‘lov qo‘shish</h2>
+        <PaymentForm />
+      </section>
+      <section className="panel detail-panel">
+        <div className="row">
+          <h2>{debtors ? "Barcha qarzdorlar" : "Talabalar balansi"}</h2>
+          <button className="secondary" onClick={() => setDebtors(!debtors)}>
+            {debtors ? "Barchasi" : "Faqat qarzdorlar"}
+          </button>
+        </div>
+        <input
+          aria-label="Qarzdorlarni qidirish"
+          placeholder="Talabani qidiring"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Talaba</th>
+                <th>Kurs qiymati</th>
+                <th>To‘lov</th>
+                <th>Qarz</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => (
+                <tr key={r.u.id}>
+                  <td>
+                    <Link className="purple" to={"/admin/students/" + r.u.id}>
+                      {r.u.name} →
+                    </Link>
+                  </td>
+                  <td>{money(r.fee)}</td>
+                  <td>{money(r.paid)}</td>
+                  <td>{money(r.debt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!filtered.length && <p>Natija yo‘q.</p>}
         </div>
       </section>
-      <div className="course-columns">
-        <div>
-          <section className="panel progress-card">
-            <div className="row">
-              <strong>Umumiy progress</strong>
-              <span className="purple">{percent}%</span>
-            </div>
-            <div className="progress">
-              <i style={{ width: percent + "%" }} />
-            </div>
-            <div className="row muted small">
-              <span>
-                {count}/{list.length} dars yakunlandi
-              </span>
-              <span>
-                {percent === 100
-                  ? "Ajoyib natija!"
-                  : "Davom eting, siz uddalaysiz!"}
-              </span>
-            </div>
-          </section>
-          <div className="section-heading">
-            <h3>Kurs dasturi</h3>
-            <span>{list.length} ta dars</span>
-          </div>
-          <div className="lesson-list">
-            {list.map((l, i) => {
-              const done = completed(data, user.id, l.id);
-              const open = unlocked(data, user.id, l.id);
-              return (
-                <article
-                  className={
-                    "lesson-row " +
-                    (open && !done ? "current" : "") +
-                    (open ? "" : " locked")
-                  }
-                  key={l.id}
-                >
-                  <span className={"lesson-number " + (done ? "done" : "")}>
-                    {done ? (
-                      <Check size={16} />
-                    ) : (
-                      String(i + 1).padStart(2, "0")
-                    )}
-                  </span>
-                  <div className="lesson-text">
-                    <h3>{l.title}</h3>
-                    <p>
-                      <Play size={11} /> Video dars <b>·</b> {l.duration} daqiqa{" "}
-                      <b>·</b> Vazifa va test
-                    </p>
-                  </div>
-                  {open ? (
-                    <Link
-                      className={done ? "done-link" : "primary compact"}
-                      to={"/student/lesson/" + l.id}
-                    >
-                      {done ? "Qayta ko‘rish" : "Darsni boshlash"}
-                      <ArrowRight size={14} />
-                    </Link>
-                  ) : (
-                    <Lock size={17} />
-                  )}
-                </article>
-              );
-            })}
-            {!list.length && (
-              <div className="empty">Hozircha darslar e’lon qilinmagan.</div>
-            )}
-          </div>
+      <section className="panel detail-panel">
+        <h2>Kurslar statistikasi</h2>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Kurs</th>
+                <th>Sotilgan</th>
+                <th>To‘lov</th>
+                <th>Qarz</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.courses.map((c) => {
+                const es = data.enrollments.filter((e) => e.courseId === c.id),
+                  s = es.map((e) => enrollmentSummary(data, e));
+                return (
+                  <tr key={c.id}>
+                    <td>{c.title}</td>
+                    <td>{es.length}</td>
+                    <td>{money(s.reduce((n, x) => n + x.paid, 0))}</td>
+                    <td>{money(s.reduce((n, x) => n + x.debt, 0))}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-        <aside>
-          <div className="panel next-card">
-            <span className="small-icon">
-              <Sparkles size={20} />
-            </span>
-            <h3>O‘zingizga ishoning.</h3>
-            <p>
-              Har bir yangi ko‘nikma sizga yangi eshiklarni ochadi. Bugungi
-              kichik qadam — ertangi katta natija.
-            </p>
-            <div className="quote-line" />
-            <small>O‘RGANISHNI TO‘XTATMANG</small>
-          </div>
-          <div className="certificate-teaser">
-            <Award size={29} />
-            <h3>Mehnatingiz e’tirofi</h3>
-            <p>
-              Barcha dars va vazifalarni yakunlang, shaxsiy sertifikatingizni
-              oling.
-            </p>
-            <Link to="/student/certificate">
-              Sertifikat haqida <ArrowRight size={14} />
-            </Link>
-          </div>
-        </aside>
-      </div>
+      </section>
+      <section className="panel detail-panel">
+        <h2>To‘lovlar tarixi</h2>
+        <div className="form-grid">
+          <label>
+            Dan
+            <input
+              type="date"
+              max={to || localDate()}
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </label>
+          <label>
+            Gacha
+            <input
+              type="date"
+              min={from}
+              max={localDate()}
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
+          </label>
+        </div>
+        <p>
+          Tanlangan davr:{" "}
+          <strong>{money(payments.reduce((n, p) => n + p.amount, 0))}</strong>
+        </p>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Sana</th>
+                <th>Talaba / kurs</th>
+                <th>Miqdor</th>
+                <th>Usul</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...payments]
+                .sort((a, b) => b.date.localeCompare(a.date))
+                .map((p) => (
+                  <tr key={p.id}>
+                    <td>{p.date}</td>
+                    <td>
+                      <Link to={"/admin/students/" + p.userId}>
+                        {data.users.find((u) => u.id === p.userId)?.name}
+                      </Link>
+                      <small>
+                        {data.courses.find((c) => c.id === p.courseId)?.title}
+                      </small>
+                    </td>
+                    <td>{money(p.amount)}</td>
+                    <td>{p.method}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+          {!payments.length && <p>To‘lovlar yo‘q.</p>}
+        </div>
+      </section>
     </>
   );
 }
@@ -2791,160 +3335,17 @@ export default function Course() {
 ## src/pages/Lesson.css
 
 ```css
-.back {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  color: var(--muted);
-  font-size: 11px;
-  margin-bottom: 22px;
-}
-.lesson-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
-  gap: 23px;
-  margin-top: 26px;
-}
-.video {
-  width: 100%;
-  aspect-ratio: 16/9;
-  background: #201532;
-  border-radius: 13px;
-}
-.video-empty {
-  aspect-ratio: 16/9;
-  border-radius: 14px;
-  background: radial-gradient(ellipse at 70% 20%, #65458b, #21152e 80%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: #f0e7ff;
-  padding: 20px;
-  text-align: center;
-}
-.video-empty svg {
-  color: #c8a5ff;
-}
-.video-empty h3 {
-  font-size: 21px;
-}
-.video-empty p {
-  font-size: 12px;
-  color: #cab8df;
-}
-.video-empty small {
-  font-size: 10px;
-  color: #9883ad;
-}
-.video-note {
-  margin: 13px 0 24px;
-}
-.tabs {
-  display: flex;
-  gap: 8px;
-  margin: 20px 0;
-}
-.tabs button {
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  padding: 10px 18px;
-}
-.tabs .active {
-  background: #eae2fc;
-  color: var(--purple);
-}
-.task-panel {
-  padding: 23px;
-}
-.task-panel h3 {
-  font-size: 14px;
-}
-.task-panel p {
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.8;
-  white-space: pre-wrap;
-}
-.task-panel form > .primary {
-  margin: 16px 0 0 auto;
-}
-.contents {
-  padding: 21px;
-  height: fit-content;
-}
-.contents h3 {
-  font-size: 13px;
-  margin-bottom: 22px;
-}
-.contents > div {
-  display: flex;
-  gap: 10px;
-  padding: 13px 5px;
-  align-items: center;
-  font-size: 10px;
-  color: var(--muted);
-  line-height: 1.6;
-}
-.contents > div span {
-  background: #f0edf7;
-  border-radius: 50%;
-  padding: 4px 8px;
-}
-.contents .selected {
-  color: var(--purple);
-}
-.submission {
-  padding: 15px;
-  background: #f7f5fb;
-  border-radius: 8px;
-  margin: 20px 0;
-}
-.test-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 10px 0;
-  font-size: 12px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-.test-option input {
-  width: 16px;
-  accent-color: var(--purple);
-}
-fieldset {
-  border: 0;
-  padding: 10px 0;
-  margin: 15px 0;
-}
-legend {
-  font-size: 13px;
-  font-weight: 600;
-}
-.result {
-  background: #eee8fc;
-  padding: 15px;
-  margin-top: 20px;
-  border-radius: 8px;
-  color: var(--purple);
-}
-@media (max-width: 1000px) {
-  .lesson-columns {
-    grid-template-columns: 1fr;
-  }
-  .contents {
-    display: none;
-  }
-}
-
 .protected-video {
   position: relative;
-  background: #201532;
-  border-radius: 13px;
   overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--video-bg);
+}
+.video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: var(--video-bg);
 }
 .video-watermark {
   position: absolute;
@@ -2952,25 +3353,26 @@ legend {
   left: 8%;
   z-index: 2;
   pointer-events: none;
-  color: #ffffff90;
-  text-shadow: 0 1px 3px #000;
-  font-size: 12px;
+  color: var(--watermark);
+  text-shadow: 0 1px 3px var(--video-bg);
+  font-size: var(--fs-small);
   max-width: 85%;
   overflow-wrap: anywhere;
 }
-.task-panel {
-  margin-top: 20px;
+.video-empty {
+  aspect-ratio: 16/9;
+  background: var(--video-bg);
+  color: var(--video-text);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
 }
-.attempt-history {
-  margin-top: 20px;
-  font-size: 12px;
-}
-.attempt-history summary {
-  cursor: pointer;
-  padding: 12px 0;
-}
-.result {
-  margin-bottom: 15px;
+.video-empty p {
+  color: var(--video-text);
 }
 
 ```
@@ -2980,16 +3382,17 @@ legend {
 ```jsx
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, PlayCircle } from "lucide-react";
+import { PlayCircle } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import {
-  studentLessons,
   getFile,
+  putFile,
   uid,
   unlocked,
-  passed,
   attemptPassed,
   recordAttempt,
+  submitPractice,
+  downloadMaterial,
 } from "../services/db";
 import "./Lesson.css";
 function Player({ lesson, onEnd, watermark }) {
@@ -3049,39 +3452,40 @@ function Player({ lesson, onEnd, watermark }) {
 
 export default function Lesson() {
   const { id } = useParams();
+  return <LessonContent key={id} id={id} />;
+}
+function LessonContent({ id }) {
   const { data, user, update, notify } = useApp();
-  const [answer, setAnswer] = useState("");
+  const [tab, setTab] = useState("test"),
+    [answer, setAnswer] = useState(""),
+    [attachment, setAttachment] = useState(null),
+    [busy, setBusy] = useState(false);
   const submitting = useRef(false);
-  useEffect(() => {
-    setAnswer("");
-    submitting.current = false;
-  }, [id]);
-  const lesson = data.lessons.find((l) => l.id === id && l.published);
+  const lesson = data.lessons.find((l) => l.id === id);
   if (!lesson || !unlocked(data, user.id, id))
     return (
       <div className="empty">
-        <h2>Dars yopiq yoki mavjud emas</h2>
-        <p>Oldingi faol darslar testidan 70% dan yuqori oling.</p>
-        <Link to="/student">Kursga qaytish</Link>
+        Dars yopiq yoki mavjud emas. <Link to="/student">Kurslarim</Link>
       </div>
     );
-  const key = user.id + ":" + id;
-  const session = data.testSessions[key];
+  const key = user.id + ":" + id,
+    session = data.testSessions[key];
   const attempts = data.attempts.filter(
-    (a) => a.userId === user.id && a.lessonId === id,
-  );
-  const latest = attempts[attempts.length - 1];
-  const sub = data.submissions.find(
-    (s) => s.userId === user.id && s.lessonId === id,
-  );
-  function startTest() {
-    if (!lesson.questions.length) return notify("Admin hali test kiritmagan.");
+      (a) => a.userId === user.id && a.lessonId === id,
+    ),
+    latest = attempts[attempts.length - 1],
+    practices = data.submissions.filter(
+      (s) => s.userId === user.id && s.lessonId === id,
+    );
+  function start() {
     update((d) => {
       if (d.testSessions[key]) return;
+      if (!lesson.questions.length) throw Error("Test mavjud emas.");
       d.testSessions[key] = {
         id: uid(),
         userId: user.id,
         lessonId: id,
+        courseId: lesson.courseId,
         lessonTitle: lesson.title,
         startedAt: new Date().toISOString(),
         questions: structuredClone(lesson.questions),
@@ -3089,87 +3493,109 @@ export default function Lesson() {
       };
     });
   }
-  function choose(questionId, value) {
-    update((d) => {
-      if (d.testSessions[key]?.id === session.id)
-        d.testSessions[key].answers[questionId] = value;
-    });
-  }
   function finish(e) {
     e.preventDefault();
-    if (submitting.current || !session) return;
+    if (submitting.current) return;
     submitting.current = true;
-    const ok = update((d) =>
+    update((d) =>
       recordAttempt(d, session, d.testSessions[key]?.answers || {}),
     );
     submitting.current = false;
-    if (ok)
-      notify("Natija saqlandi. Topshirilgan javoblarni o‘zgartirib bo‘lmaydi.");
   }
-  function watchedEnd() {
-    update((d) => {
-      d.progress[user.id] ??= {};
-      d.progress[user.id][id] = {
-        ...d.progress[user.id][id],
-        watched: true,
-        watchedAt: new Date().toISOString(),
-      };
-    });
-  }
-  function submitTask(e) {
+  async function practice(e) {
     e.preventDefault();
-    if (answer.trim().length < 5) return notify("Kamida 5 ta belgi yozing.");
-    const ok = update((d) => {
-      d.submissions = d.submissions.filter(
-        (s) => !(s.userId === user.id && s.lessonId === id),
-      );
-      d.submissions.push({
-        id: uid(),
-        userId: user.id,
-        lessonId: id,
-        answer: answer.trim(),
-        status: "pending",
-        feedback: "",
-        createdAt: new Date().toISOString(),
-      });
-    });
-    if (ok) {
-      setAnswer("");
-      notify("Vazifa yuborildi.");
+    if (busy) return;
+    setBusy(true);
+    try {
+      let material;
+      if (attachment) {
+        if (
+          !/\.(pdf|xlsx?|png|jpe?g)$/i.test(attachment.name) ||
+          attachment.size > 20 * 1024 * 1024
+        )
+          throw Error("PDF, Excel yoki rasm tanlang (20 MB gacha).");
+        material = { fileId: await putFile(attachment), name: attachment.name };
+      }
+      if (
+        update((d) =>
+          submitPractice(d, {
+            id: uid(),
+            userId: user.id,
+            courseId: lesson.courseId,
+            lessonId: id,
+            lessonTitle: lesson.title,
+            answer,
+            attachment: material,
+          }),
+        )
+      ) {
+        setAnswer("");
+        setAttachment(null);
+        notify("Amaliy ish tarixga saqlandi.");
+      }
+    } catch (e) {
+      notify(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function download(m) {
+    try {
+      await downloadMaterial(m);
+    } catch (e) {
+      notify(e.message);
     }
   }
   return (
     <>
-      <Link className="back" to="/student">
-        <ArrowLeft size={15} /> Kursga qaytish
+      <Link className="back" to={"/student/course/" + lesson.courseId}>
+        ← Kursga qaytish
       </Link>
-      <div className="page-heading">
-        <div>
-          <h1>{lesson.title}</h1>
-          <p>{lesson.description}</p>
-        </div>
-        {passed(data, user.id, id) && (
-          <span className="badge green">Testdan o‘tilgan</span>
-        )}
+      <h1>{lesson.title}</h1>
+      <p>{lesson.description}</p>
+      <Player
+        lesson={lesson}
+        watermark={user.name + " · " + user.email}
+        onEnd={() =>
+          update((d) => {
+            d.progress[user.id] ??= {};
+            d.progress[user.id][id] = {
+              watched: true,
+              watchedAt: new Date().toISOString(),
+            };
+          })
+        }
+      />
+      <p>
+        {data.progress[user.id]?.[id]?.watched
+          ? "✓ Video yakunlangan"
+          : "Video oxirigacha ko‘rilgach holat saqlanadi."}
+      </p>
+      <div className="tabs" role="tablist" aria-label="Dars bo‘limlari">
+        {[
+          ["test", "1. Test"],
+          ["practice", "2. Amaliy"],
+          ["materials", "3. Qo‘shimcha materiallar"],
+        ].map(([k, v]) => (
+          <button
+            key={k}
+            role="tab"
+            aria-selected={tab === k}
+            aria-controls={"panel-" + k}
+            className={tab === k ? "active" : ""}
+            onClick={() => setTab(k)}
+          >
+            {v}
+          </button>
+        ))}
       </div>
-      <div className="lesson-columns">
-        <section>
-          <Player
-            key={id}
-            lesson={lesson}
-            onEnd={watchedEnd}
-            watermark={user.name + " · " + user.email}
-          />
-          <p className="small muted">
-            {data.progress[user.id]?.[id]?.watched
-              ? "✓ Video yakunlangan"
-              : "Video oxirida ko‘rilganlik saqlanadi."}
-          </p>
-          <section className="panel task-panel">
-            <h3>Dars testi</h3>
+      <section className="panel task-panel" role="tabpanel" id={"panel-" + tab}>
+        {tab === "test" ? (
+          <>
+            <h2>Bilimingizni tekshiring</h2>
             <p>
-              Keyingi dars uchun natija 70% dan yuqori bo‘lishi kerak. 70%
-              yetarli emas.
+              O‘tish sharti: 70% dan yuqori. Natijalar tahrirlanmaydi; qayta
+              urinish boshidan boshlanadi.
             </p>
             {session ? (
               <form onSubmit={finish}>
@@ -3178,118 +3604,136 @@ export default function Lesson() {
                     <legend>
                       {i + 1}. {q.text}
                     </legend>
-                    {q.options.map((option, j) => (
+                    {q.options.map((o, j) => (
                       <label className="test-option" key={j}>
                         <input
                           type="radio"
-                          required
                           name={q.id}
+                          required
                           checked={session.answers[q.id] === j}
-                          onChange={() => choose(q.id, j)}
+                          onChange={() =>
+                            update((d) => {
+                              if (d.testSessions[key]?.id === session.id)
+                                d.testSessions[key].answers[q.id] = j;
+                            })
+                          }
                         />
-                        {option}
+                        {o}
                       </label>
                     ))}
                   </fieldset>
                 ))}
-                <button className="primary">Testni yakunlash</button>
+                <button className="primary">Testni topshirish</button>
               </form>
             ) : (
               <>
                 {latest && (
-                  <div className="result">
-                    Oxirgi natija: {latest.score.toFixed(2)}% —{" "}
-                    {attemptPassed(latest) ? "O‘tdingiz" : "O‘tmadingiz"}.
-                    Natija o‘zgartirilmaydi.
-                  </div>
+                  <p className="result">
+                    Oxirgi natija: {latest.score.toFixed(2)}% ·{" "}
+                    {attemptPassed(latest) ? "O‘tdingiz" : "O‘tmadingiz"}
+                  </p>
                 )}
                 <button
                   className="primary"
                   disabled={!lesson.questions.length}
-                  onClick={startTest}
+                  onClick={start}
                 >
-                  {latest
-                    ? "Testni boshidan qayta boshlash"
-                    : "Testni boshlash"}
+                  {latest ? "Testni boshidan boshlash" : "Testni boshlash"}
                 </button>
-                {!lesson.questions.length && (
-                  <p>
-                    Test hali kiritilmagan. Administratorga murojaat qiling.
-                  </p>
-                )}
               </>
             )}
-            {attempts.length > 0 && (
-              <details className="attempt-history">
-                <summary>Urinishlar tarixi ({attempts.length})</summary>
-                {[...attempts].reverse().map((a) => (
-                  <div className="submission" key={a.id}>
-                    <strong>
-                      {a.score.toFixed(2)}% ·{" "}
-                      {attemptPassed(a) ? "O‘tdi" : "O‘tmadi"}
-                    </strong>
-                    <p>{new Date(a.createdAt).toLocaleString("uz-UZ")}</p>
-                    {a.questions?.map((q, i) => (
-                      <p key={q.id}>
-                        {i + 1}. {q.text}
-                        <br />
-                        Javobingiz: {q.options[a.answers?.[q.id]] ?? "—"}
-                      </p>
-                    ))}
-                  </div>
+            <h3>Test tarixi</h3>
+            {[...attempts].reverse().map((a) => (
+              <details key={a.id} className="attempt-detail">
+                <summary>
+                  {a.score.toFixed(2)}% ·{" "}
+                  {new Date(a.createdAt).toLocaleString("uz-UZ")}
+                </summary>
+                {a.questions?.map((q) => (
+                  <p key={q.id}>
+                    {q.text}
+                    <br />
+                    Javobingiz: {q.options[a.answers?.[q.id]] ?? "—"}
+                  </p>
                 ))}
               </details>
-            )}
-          </section>
-          <section className="panel task-panel">
-            <h3>Amaliy vazifa</h3>
+            ))}
+          </>
+        ) : tab === "practice" ? (
+          <>
+            <h2>Amaliy topshiriq</h2>
             <p>{lesson.task}</p>
-            {sub && (
-              <div className="submission">
+            {practices.some((s) => s.status === "pending") ? (
+              <p className="badge">Yuborilgan ish tekshirilmoqda.</p>
+            ) : (
+              <form onSubmit={practice}>
+                <label>
+                  Javobingiz
+                  <textarea
+                    required
+                    minLength={5}
+                    maxLength={10000}
+                    value={answer}
+                    onChange={(e) => setAnswer(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Ilova (ixtiyoriy, 20 MB gacha)
+                  <input
+                    key={attachment?.name || "empty"}
+                    type="file"
+                    accept=".pdf,.xls,.xlsx,.png,.jpg,.jpeg"
+                    onChange={(e) => setAttachment(e.target.files[0] || null)}
+                  />
+                </label>
+                <button className="primary" disabled={busy}>
+                  {busy ? "Saqlanmoqda…" : "Amaliy ishni topshirish"}
+                </button>
+              </form>
+            )}
+            <h3>Amaliy ishlar tarixi</h3>
+            {[...practices].reverse().map((s) => (
+              <article className="submission" key={s.id}>
+                <p>{s.answer}</p>
+                {s.attachment && (
+                  <button
+                    className="secondary"
+                    onClick={() => download(s.attachment)}
+                  >
+                    {s.attachment.name} ↓
+                  </button>
+                )}
+                <p>{new Date(s.createdAt).toLocaleString("uz-UZ")}</p>
                 <strong>
                   {
                     {
                       pending: "Tekshirilmoqda",
-                      approved: "Tasdiqlandi",
-                      rejected: "Qayta ishlash kerak",
-                    }[sub.status]
+                      approved: "Tasdiqlangan",
+                      rejected: "Qaytarilgan",
+                    }[s.status]
                   }
                 </strong>
-                <p>{sub.answer}</p>
-                <p>{sub.feedback}</p>
-              </div>
-            )}
-            {sub?.status !== "approved" && (
-              <form onSubmit={submitTask}>
-                <textarea
-                  required
-                  minLength={5}
-                  maxLength={10000}
-                  aria-label="Vazifa javobi"
-                  value={answer}
-                  onChange={(e) => setAnswer(e.target.value)}
-                />
-                <button className="primary">Vazifani topshirish</button>
-              </form>
-            )}
-          </section>
-        </section>
-        <aside className="panel contents">
-          <h3>Kurs darslari</h3>
-          {studentLessons(data, user.id)
-            .filter((l) => l.published)
-            .map((l, i) => (
-              <div key={l.id} className={l.id === id ? "selected" : ""}>
-                <span>{i + 1}</span>
-                {unlocked(data, user.id, l.id) ? (
-                  <Link to={"/student/lesson/" + l.id}>{l.title}</Link>
-                ) : (
-                  <small>🔒 {l.title}</small>
-                )}
+                <p>Baho: {s.grade ?? "—"} / 100</p>
+                <p>{s.feedback}</p>
+              </article>
+            ))}
+          </>
+        ) : (
+          <>
+            <h2>Qo‘shimcha materiallar</h2>
+            <p>Dars uchun PDF va Excel fayllar.</p>
+            {(lesson.materials || []).map((m) => (
+              <div className="material-row" key={m.fileId}>
+                <span>{m.name}</span>
+                <button className="secondary" onClick={() => download(m)}>
+                  Yuklab olish ↓
+                </button>
               </div>
             ))}
-        </aside>
-      </div>
+            {!lesson.materials?.length && <p>Hozircha material yuklanmagan.</p>}
+          </>
+        )}
+      </section>
     </>
   );
 }
@@ -3300,305 +3744,201 @@ export default function Lesson() {
 
 ```css
 .login-page {
-  max-width: 1440px;
-  margin: auto;
   min-height: 100vh;
-  padding: 35px 65px 20px;
-  background:
-    radial-gradient(ellipse at 12% 48%, #eae2ff 0, transparent 55%), #faf9fd;
+  padding: 30px 5vw;
+  background: var(--hero-gradient);
 }
 .login-brand {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  gap: 24px;
 }
 .login-brand > span {
-  font-size: 11px;
   color: var(--muted);
 }
 .login-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  gap: 50px;
   align-items: center;
-  gap: 60px;
-  min-height: calc(100vh - 130px);
-}
-.login-story {
-  padding: 45px 0 10px 35px;
-}
-.eyebrow {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  font-size: 10px;
-  color: var(--purple);
-  letter-spacing: 1px;
-  font-weight: 700;
+  max-width: 1400px;
+  margin: 40px auto;
 }
 .login-story h1 {
-  font-size: 58px;
-  letter-spacing: -2.8px;
-  line-height: 1.1;
-  margin: 24px 0 18px;
+  font-size: var(--fs-hero);
+  line-height: 1.14;
+  margin: 28px 0;
 }
 .login-story em {
-  color: var(--purple);
   font-style: normal;
+  color: var(--primary);
 }
-.login-story > p {
-  font-size: 15px;
+.login-story p {
   color: var(--muted);
-  line-height: 1.8;
+  font-size: var(--fs-medium);
 }
 .ai-art {
+  height: 240px;
   position: relative;
-  width: 310px;
-  height: 245px;
-  margin: 15px 0;
+  max-width: 380px;
+  margin: 25px 0;
 }
 .ai-cube {
   position: absolute;
-  left: 90px;
-  top: 28px;
-  width: 147px;
-  height: 163px;
+  left: 80px;
+  top: 15px;
+  width: 180px;
+  height: 180px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  font-size: 70px;
-  font-weight: 600;
-  letter-spacing: -5px;
-  color: #efeaff;
-  border: 5px solid #9a7ce7;
-  border-radius: 24px;
-  background: linear-gradient(135deg, #a98aec, #603ab4 48%, #35205f);
-  transform: rotate(-12deg) skewY(5deg);
-  box-shadow:
-    14px 16px 0 #33225d,
-    24px 28px 30px #7650b54d,
-    inset 0 0 25px #c3adff;
+  font-size: var(--fs-art);
+  font-weight: 700;
+  color: var(--surface);
+  background: var(--gradient);
+  border: 6px solid var(--primary-border);
+  border-radius: 28px;
+  transform: rotate(-10deg);
+  box-shadow: var(--shadow);
 }
 .ai-cube span {
-  font-size: 9px;
-  letter-spacing: 1px;
-  font-weight: 400;
-}
-.art-base {
-  position: absolute;
-  width: 235px;
-  height: 22px;
-  bottom: 10px;
-  left: 49px;
-  border-radius: 50%;
-  background: #ddd0f7;
-  box-shadow: 0 0 30px #c6b2f5;
-}
-.orbit {
-  position: absolute;
-  border: 1px solid #d9cdf3;
-  border-radius: 50%;
-  width: 275px;
-  height: 190px;
-  top: 20px;
-  left: 20px;
-  transform: rotate(-30deg);
-}
-.orbit-two {
-  transform: rotate(32deg);
+  font-size: var(--fs-small);
 }
 .float-icon {
   position: absolute;
-  padding: 10px;
-  background: #ffffffad;
-  border: 1px solid white;
-  border-radius: 13px;
-  color: #9270df;
-  box-shadow: 0 8px 25px #8a65d51c;
+  color: var(--primary);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 15px;
+  box-shadow: var(--shadow);
 }
 .float-icon.one {
-  right: 5px;
-  top: 5px;
+  right: 25px;
+  top: 0;
 }
 .float-icon.two {
-  left: 3px;
-  top: 135px;
+  bottom: 10px;
+  left: 0;
 }
 .story-note {
-  font-size: 11px;
   color: var(--muted);
 }
-.story-note span {
-  color: #9878d8;
-  margin-right: 8px;
-}
 .login-form-wrap {
-  max-width: 450px;
+  max-width: 600px;
   width: 100%;
   margin: auto;
 }
 .login-form {
-  padding: 36px;
-  background: #fff;
-  border: 1px solid #eee9f5;
-  border-radius: 18px;
-  box-shadow: 0 15px 65px #35246006;
-}
-.small-icon {
-  display: grid;
-  place-items: center;
-  background: #f0eaff;
-  color: var(--purple);
-  width: 43px;
-  height: 43px;
-  border-radius: 12px;
-  margin-bottom: 22px;
+  background: var(--surface);
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
 }
 .login-form h2 {
-  font-size: 27px;
-  letter-spacing: -0.8px;
-  margin: 0 0 8px;
+  margin: 20px 0 12px;
 }
 .login-form > p {
-  font-size: 12px;
   color: var(--muted);
-  margin-bottom: 30px;
 }
-.login-form > label {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  margin-top: 20px;
+.small-icon {
+  display: inline-flex;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 .input-icon {
   position: relative;
-  margin-top: 9px;
 }
 .input-icon > svg {
   position: absolute;
   left: 13px;
-  top: 15px;
-  color: #9790a7;
+  top: 24px;
+  color: var(--muted);
 }
 .input-icon input {
-  padding-left: 40px;
-  height: 47px;
-  padding-right: 40px;
+  padding-left: 42px;
+  padding-right: 45px;
 }
 .eye {
   position: absolute;
-  right: 12px;
-  top: 14px;
-  background: none;
+  right: 8px;
+  top: 10px;
+  background: var(--transparent);
   color: var(--muted);
-  padding: 0;
+  padding: 8px;
 }
 .login-options {
   display: flex;
+  gap: 16px;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  margin: 20px 0 25px;
-  font-size: 10px;
-}
-.check {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--muted);
-}
-.check input {
-  width: 13px;
-  accent-color: var(--purple);
-}
-.text-btn {
-  color: var(--purple);
-  font-size: 10px;
-  background: none;
-  padding: 0;
+  flex-wrap: wrap;
+  margin: 24px 0;
 }
 .login-submit {
   width: 100%;
-  height: 45px;
-  justify-content: center;
 }
 .demo-access {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
+  padding-top: 25px;
   margin-top: 25px;
-  padding-top: 20px;
   text-align: center;
-}
-.demo-access > span {
-  font-size: 9px;
-  letter-spacing: 1.4px;
-  color: #aaa2b9;
 }
 .demo-access > div {
   display: flex;
-  gap: 10px;
-  margin: 13px 0;
+  gap: 12px;
+  margin: 16px 0;
 }
 .demo-access button {
-  width: 50%;
-  background: #f8f6fc;
-  border: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 10px;
-  color: #716780;
-  font-size: 11px;
+  gap: 10px;
+  width: 50%;
+  background: var(--primary-soft);
+  color: var(--primary);
+  padding: 12px;
 }
 .demo-access small {
-  font-size: 9px;
-  color: #a69db3;
+  color: var(--muted);
 }
 .form-bottom {
-  font-size: 11px;
   display: flex;
+  align-items: center;
   justify-content: center;
-  gap: 7px;
-  color: #a69db3;
-  margin: 20px;
+  gap: 10px;
+  color: var(--muted);
 }
 .login-footer {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
-  color: #aaa2b5;
+  gap: 20px;
+  flex-wrap: wrap;
+  color: var(--muted);
 }
-@media (max-width: 800px) {
-  .login-page {
-    padding: 24px;
+@media (max-width: 1000px) {
+  .login-grid {
+    grid-template-columns: 1fr;
   }
+  .login-story {
+    max-width: 600px;
+    margin: auto;
+    width: 100%;
+  }
+  .ai-art,
+  .story-note,
   .login-brand > span {
     display: none;
   }
-  .login-grid {
-    grid-template-columns: 1fr;
-    gap: 15px;
-  }
-  .login-story {
-    padding: 35px 0 0;
-  }
-  .login-story h1 {
-    font-size: 41px;
-  }
-  .ai-art,
-  .story-note {
-    display: none;
-  }
-  .login-story > p {
-    font-size: 13px;
-  }
   .login-form {
-    padding: 25px;
+    padding: 24px;
   }
-  .login-footer {
-    margin-top: 25px;
-  }
-  .eyebrow {
-    font-size: 8px;
+  .login-page {
+    padding: 24px 18px;
   }
 }
 
@@ -3798,407 +4138,205 @@ export default function Login() {
 ## src/pages/StudentDetail.css
 
 ```css
-.detail-panel {
-  padding: 25px;
-  margin: 22px 0;
-}
-.detail-panel h3 {
-  font-size: 16px;
-}
-.detail-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  margin: 20px 0;
-}
-.detail-grid label {
-  font-size: 12px;
-  font-weight: 600;
-}
-.detail-grid input,
-.detail-grid select,
-.detail-grid textarea {
-  display: block;
-  margin-top: 8px;
-}
-.payment-totals {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin: 22px 0;
-}
-.payment-totals > span {
-  background: #f5f0ff;
-  padding: 16px;
-  border-radius: 10px;
-  font-size: 11px;
-  color: #81728e;
-}
-.payment-totals strong {
-  display: block;
-  font-size: 16px;
-  color: #453251;
-  margin-top: 10px;
-  overflow-wrap: anywhere;
-}
-.attempt-detail {
-  border-bottom: 1px solid var(--line);
-  padding: 18px 0;
-  font-size: 12px;
-}
-.attempt-detail summary {
-  cursor: pointer;
-  font-weight: 600;
-  line-height: 1.8;
-}
-.attempt-detail p,
-.detail-panel .submission p {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.8;
-}
-.detail-panel td {
-  max-width: 320px;
-  overflow-wrap: anywhere;
-}
-@media (max-width: 700px) {
-  .detail-grid {
-    grid-template-columns: 1fr;
-  }
-  .payment-totals {
-    grid-template-columns: 1fr 1fr;
-  }
-  .detail-panel {
-    padding: 17px;
-  }
-}
+/* Umumiy UI stillari src/index.css ichida, ranglar va shriftlar :root orqali boshqariladi. */
 
 ```
 
 ## src/pages/StudentDetail.jsx
 
 ```jsx
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import {
-  studentLessons,
-  uid,
-  attemptPassed,
-  passed,
+  enrollmentsFor,
+  enrollmentSummary,
   paymentSummary,
+  studentLessons,
+  attemptPassed,
+  money,
+  integer,
+  downloadMaterial,
 } from "../services/db";
+import StudentForm from "../components/StudentForm";
+import PaymentForm from "../components/PaymentForm";
+import Modal from "../components/Modal";
+import { downloadCertificate } from "../services/certificate";
 import "./StudentDetail.css";
-const money = (n) => new Intl.NumberFormat("uz-UZ").format(n) + " so‘m";
 export default function StudentDetail() {
   const { studentId } = useParams();
-  const { data, update, notify, user: admin } = useApp();
+  const { data, user, update, notify } = useApp();
+  const [edit, setEdit] = useState(false),
+    [voiding, setVoiding] = useState(null),
+    [feeEdit, setFeeEdit] = useState(null);
   const student = data.users.find(
     (u) => u.id === studentId && u.role === "student",
   );
   if (!student)
     return (
       <div className="empty">
-        O‘quvchi topilmadi. <Link to="/admin/students">Ro‘yxatga qaytish</Link>
+        Talaba topilmadi. <Link to="/admin/students">Ortga</Link>
       </div>
     );
-  const lessons = studentLessons(data, studentId);
-  const payments = data.payments.filter((p) => p.userId === studentId);
-  const attempts = data.attempts.filter((a) => a.userId === studentId);
-  const progress = data.progress[studentId] || {};
-  const watched = lessons.filter((l) => progress[l.id]?.watched).length;
-  const totals = paymentSummary(data, student);
-  function saveProfile(e) {
+  const totals = paymentSummary(data, student),
+    enrollments = enrollmentsFor(data, studentId),
+    lessons = studentLessons(data, studentId),
+    attempts = data.attempts.filter((a) => a.userId === studentId),
+    submissions = data.submissions.filter((s) => s.userId === studentId),
+    payments = data.payments.filter((p) => p.userId === studentId);
+  function voidPayment(e) {
     e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    const name = f.get("name").trim(),
-      email = f.get("email").trim().toLowerCase(),
-      fee = Number(f.get("courseFee"));
-    if (name.length < 3) return notify("Ism kamida 3 ta belgi bo‘lsin.");
-    if (!Number.isSafeInteger(fee) || fee < 0)
-      return notify("Kurs narxini butun so‘mda kiriting.");
+    const reason = new FormData(e.currentTarget).get("reason").trim();
+    if (reason.length < 5) return notify("Kamida 5 belgili sabab yozing.");
     if (
-      data.users.some(
-        (u) => u.id !== studentId && u.email.toLowerCase() === email,
-      )
+      update((d) => {
+        const p = d.payments.find((p) => p.id === voiding.id);
+        if (p.voidedAt) throw Error("Avval bekor qilingan.");
+        p.voidedAt = new Date().toISOString();
+        p.voidReason = reason;
+        p.voidedBy = user.id;
+      })
     )
-      return notify("Ushbu email band.");
-    if (
-      update((d) =>
-        Object.assign(
-          d.users.find((u) => u.id === studentId),
-          {
-            name,
-            email,
-            phone: f.get("phone").trim(),
-            courseFee: fee,
-            notes: f.get("notes").trim(),
-            active: f.get("active") === "true",
-          },
-        ),
-      )
-    )
-      notify("O‘quvchi ma’lumotlari saqlandi.");
+      setVoiding(null);
   }
-  function addPayment(e) {
+  function fee(e) {
     e.preventDefault();
-    const form = e.currentTarget,
-      f = new FormData(form),
-      amount = Number(f.get("amount"));
-    if (!Number.isSafeInteger(amount) || amount <= 0)
-      return notify("Musbat, butun so‘m miqdorini kiriting.");
-    if (!f.get("date")) return notify("To‘lov sanasini kiriting.");
+    const n = new FormData(e.currentTarget).get("fee");
     if (
-      update((d) =>
-        d.payments.push({
-          id: uid(),
-          userId: studentId,
-          amount,
-          date: f.get("date"),
-          method: f.get("method"),
-          note: f.get("note").trim(),
-          createdAt: new Date().toISOString(),
-          createdBy: admin.id,
-        }),
-      )
-    ) {
-      form.reset();
-      notify("To‘lov qayd etildi.");
+      update((d) => {
+        const enrollment = d.enrollments.find((e) => e.id === feeEdit.id);
+        const value = integer(n);
+        if (value < enrollmentSummary(d, enrollment).paid)
+          throw Error("Narx to‘langan summadan kam bo‘lolmaydi.");
+        enrollment.fee = value;
+      })
+    )
+      setFeeEdit(null);
+  }
+  async function download(m) {
+    try {
+      await downloadMaterial(m);
+    } catch (e) {
+      notify(e.message);
     }
-  }
-  function removePayment(payment) {
-    if (
-      !window.confirm(money(payment.amount) + " to‘lov yozuvi o‘chirilsinmi?")
-    )
-      return;
-    update((d) => {
-      d.payments = d.payments.filter((p) => p.id !== payment.id);
-    });
   }
   return (
     <>
       <Link className="back" to="/admin/students">
-        ← O‘quvchilar ro‘yxati
+        ← Talabalar
       </Link>
       <div className="page-heading">
         <div>
           <h1>{student.name}</h1>
           <p>
-            {student.email} ·{" "}
-            {student.active ? "Faol hisob" : "Bloklangan hisob"}
+            {student.email} · {student.phone || "Telefon kiritilmagan"}
+          </p>
+          <p>
+            {student.active ? "Faol" : "Bloklangan"} · {student.notes}
           </p>
         </div>
-        <span className="badge">O‘quvchi tafsilotlari</span>
+        <button className="primary" onClick={() => setEdit(true)}>
+          Ma’lumot va kurslarni tahrirlash
+        </button>
       </div>
       <div className="stats">
-        <div className="panel stat">
-          <strong>
-            {watched}/{lessons.length}
-          </strong>
-          <span>Video oxirigacha ko‘rilgan</span>
-        </div>
-        <div className="panel stat">
-          <strong>
-            {lessons.filter((l) => passed(data, studentId, l.id)).length}
-          </strong>
-          <span>Testdan o‘tilgan darslar</span>
-        </div>
-        <div className="panel stat">
-          <strong>{attempts.length}</strong>
-          <span>Test urinishlari</span>
-        </div>
-        <div className="panel stat">
-          <strong>
-            {attempts.length
-              ? Math.max(...attempts.map((a) => a.score)).toFixed(2) + "%"
-              : "—"}
-          </strong>
-          <span>Eng yaxshi natija</span>
-        </div>
+        {[
+          [enrollments.length, "Sotib olingan kurs"],
+          [
+            lessons.filter((l) => data.progress[studentId]?.[l.id]?.watched)
+              .length,
+            "Ko‘rilgan video",
+          ],
+          [money(totals.paid), "To‘langan"],
+          [money(totals.debt), "Qarz"],
+        ].map(([n, l]) => (
+          <div className="panel stat" key={l}>
+            <strong>{n}</strong>
+            <span>{l}</span>
+          </div>
+        ))}
       </div>
       <section className="panel detail-panel">
-        <h3>Shaxsiy ma’lumotlar</h3>
-        <p>
-          Kurs:{" "}
-          <strong>
-            {data.courses.find((c) => c.id === student.courseId)?.title ||
-              "Biriktirilmagan"}
-          </strong>
-        </p>
-        <form onSubmit={saveProfile} key={studentId}>
-          <div className="detail-grid">
-            <label>
-              To‘liq ism
-              <input
-                name="name"
-                required
-                minLength={3}
-                defaultValue={student.name}
-              />
-            </label>
-            <label>
-              Email
-              <input
-                name="email"
-                type="email"
-                required
-                defaultValue={student.email}
-              />
-            </label>
-            <label>
-              Telefon
-              <input
-                name="phone"
-                type="tel"
-                maxLength={30}
-                defaultValue={student.phone || ""}
-              />
-            </label>
-            <label>
-              Kurs umumiy narxi (so‘m)
-              <input
-                name="courseFee"
-                type="number"
-                min="0"
-                step="1"
-                required
-                defaultValue={student.courseFee || 0}
-              />
-            </label>
-            <label>
-              Holat
-              <select name="active" defaultValue={String(student.active)}>
-                <option value="true">Faol</option>
-                <option value="false">Bloklangan</option>
-              </select>
-            </label>
-            <label>
-              Admin izohi
-              <textarea
-                name="notes"
-                maxLength={5000}
-                defaultValue={student.notes || ""}
-              />
-            </label>
-          </div>
-          <button className="primary">Ma’lumotlarni saqlash</button>
-        </form>
+        <h2>Kurslar va hisob-kitob</h2>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Kurs</th>
+                <th>Kelishilgan narx</th>
+                <th>To‘lov</th>
+                <th>Qarz</th>
+                <th>Amal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {enrollments.map((e) => {
+                const s = enrollmentSummary(data, e);
+                return (
+                  <tr key={e.id}>
+                    <td>
+                      {data.courses.find((c) => c.id === e.courseId)?.title}
+                    </td>
+                    <td>{money(s.fee)}</td>
+                    <td>{money(s.paid)}</td>
+                    <td>
+                      {money(s.debt)}
+                      {s.credit > 0 && (
+                        <small>Ortiqcha: {money(s.credit)}</small>
+                      )}
+                    </td>
+                    <td>
+                      <button
+                        className="secondary"
+                        onClick={() => setFeeEdit(e)}
+                      >
+                        Narxni tahrirlash
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </section>
       <section className="panel detail-panel">
-        <h3>To‘lovlar</h3>
-        <p className="muted small">
-          Bu qo‘lda yuritiladigan hisob. Tugma bank orqali pul yechmaydi.
-        </p>
-        <div className="payment-totals">
-          <span>
-            Kurs narxi<strong>{money(totals.fee)}</strong>
-          </span>
-          <span>
-            To‘langan<strong>{money(totals.paid)}</strong>
-          </span>
-          <span>
-            Qarzdorlik<strong>{money(totals.debt)}</strong>
-          </span>
-          <span>
-            Ortiqcha to‘lov<strong>{money(totals.credit)}</strong>
-          </span>
-        </div>
-        <form onSubmit={addPayment}>
-          <div className="detail-grid">
-            <label>
-              Miqdor (so‘m)
-              <input name="amount" type="number" min="1" step="1" required />
-            </label>
-            <label>
-              Sana
-              <input
-                name="date"
-                type="date"
-                required
-                defaultValue={new Date().toLocaleDateString("en-CA")}
-              />
-            </label>
-            <label>
-              To‘lov usuli
-              <select name="method">
-                <option>Naqd</option>
-                <option>Karta</option>
-                <option>Bank o‘tkazmasi</option>
-              </select>
-            </label>
-            <label>
-              Izoh
-              <input name="note" maxLength={500} />
-            </label>
-          </div>
-          <button className="primary">+ To‘lovni qayd etish</button>
-        </form>
+        <h2>To‘lov qo‘shish</h2>
+        <PaymentForm studentId={studentId} />
+        <h3>To‘lov tarixi</h3>
         <div className="table-scroll">
           <table>
             <thead>
               <tr>
                 <th>Sana</th>
+                <th>Kurs</th>
                 <th>Miqdor</th>
-                <th>Usul</th>
-                <th>Izoh</th>
+                <th>Holat</th>
                 <th>Amal</th>
               </tr>
             </thead>
             <tbody>
-              {[...payments]
-                .sort((a, b) => b.date.localeCompare(a.date))
-                .map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.date}</td>
-                    <td>{money(p.amount)}</td>
-                    <td>{p.method}</td>
-                    <td>{p.note || "—"}</td>
-                    <td>
+              {[...payments].reverse().map((p) => (
+                <tr key={p.id}>
+                  <td>{p.date}</td>
+                  <td>
+                    {data.courses.find((c) => c.id === p.courseId)?.title}
+                    <small>{p.note}</small>
+                  </td>
+                  <td>{money(p.amount)}</td>
+                  <td>
+                    {p.voidedAt ? "Bekor qilingan" : "Qayd etilgan"}
+                    <small>{p.voidReason}</small>
+                  </td>
+                  <td>
+                    {!p.voidedAt && (
                       <button
                         className="secondary"
-                        onClick={() => removePayment(p)}
+                        onClick={() => setVoiding(p)}
                       >
-                        O‘chirish
+                        Bekor qilish
                       </button>
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-          {!payments.length && (
-            <p className="muted small">To‘lovlar hali yo‘q.</p>
-          )}
-        </div>
-      </section>
-      <section className="panel detail-panel">
-        <h3>Darslar va ko‘rilgan videolar</h3>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Dars</th>
-                <th>Holat</th>
-                <th>Video</th>
-                <th>Ko‘rilgan sana</th>
-                <th>Test</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lessons.map((l) => (
-                <tr key={l.id}>
-                  <td>{l.title}</td>
-                  <td>{l.published ? "Faol" : "Nofaol"}</td>
-                  <td>
-                    {progress[l.id]?.watched ? "Yakunlangan" : "Yakunlanmagan"}
-                  </td>
-                  <td>
-                    {progress[l.id]?.watchedAt
-                      ? new Date(progress[l.id].watchedAt).toLocaleString(
-                          "uz-UZ",
-                        )
-                      : "—"}
-                  </td>
-                  <td>
-                    {passed(data, studentId, l.id) ? "O‘tilgan" : "O‘tilmagan"}
+                    )}
                   </td>
                 </tr>
               ))}
@@ -4207,67 +4345,160 @@ export default function StudentDetail() {
         </div>
       </section>
       <section className="panel detail-panel">
-        <h3>Test natijalari va javoblar</h3>
-        {!attempts.length && (
-          <p className="muted small">Hali test topshirilmagan.</p>
-        )}
-        {[...attempts].reverse().map((a, i) => (
+        <h2>Ko‘rilgan darslar</h2>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Kurs / dars</th>
+                <th>Video</th>
+                <th>Sana</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lessons.map((l) => (
+                <tr key={l.id}>
+                  <td>
+                    {l.title}
+                    <small>
+                      {data.courses.find((c) => c.id === l.courseId)?.title}
+                    </small>
+                  </td>
+                  <td>
+                    {data.progress[studentId]?.[l.id]?.watched
+                      ? "Yakunlangan"
+                      : "Yakunlanmagan"}
+                  </td>
+                  <td>
+                    {data.progress[studentId]?.[l.id]?.watchedAt
+                      ? new Date(
+                          data.progress[studentId][l.id].watchedAt,
+                        ).toLocaleString("uz-UZ")
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section className="panel detail-panel">
+        <h2>Test natijalari tarixi</h2>
+        {!attempts.length && <p>Hali test topshirilmagan.</p>}
+        {[...attempts].reverse().map((a) => (
           <details className="attempt-detail" key={a.id}>
             <summary>
-              #{attempts.length - i} ·{" "}
               {a.lessonTitle ||
                 data.lessons.find((l) => l.id === a.lessonId)?.title ||
-                "O‘chirilgan dars"}{" "}
+                "Eski dars"}{" "}
               · {a.score.toFixed(2)}% · {attemptPassed(a) ? "O‘tdi" : "O‘tmadi"}
             </summary>
-            <p>
-              {new Date(a.createdAt).toLocaleString("uz-UZ")} ·{" "}
-              {a.total
-                ? `${a.correctCount}/${a.total} to‘g‘ri javob`
-                : "Eski natija"}
-            </p>
-            {a.questions?.map((q, index) => (
+            <p>{new Date(a.createdAt).toLocaleString("uz-UZ")}</p>
+            {a.questions?.map((q, i) => (
               <div className="submission" key={q.id}>
                 <strong>
-                  {index + 1}. {q.text}
+                  {i + 1}. {q.text}
                 </strong>
-                <p>Tanlangan javob: {q.options[a.answers?.[q.id]] ?? "—"}</p>
+                <p>Talaba: {q.options[a.answers?.[q.id]] ?? "—"}</p>
                 <p>To‘g‘ri javob: {q.options[q.correct]}</p>
               </div>
             ))}
-            {!a.questions && (
-              <p>Eski versiyada javoblar tafsiloti saqlanmagan.</p>
-            )}
           </details>
         ))}
       </section>
       <section className="panel detail-panel">
-        <h3>Amaliy vazifalar</h3>
-        {data.submissions
-          .filter((s) => s.userId === studentId)
-          .map((s) => (
-            <div className="submission" key={s.id}>
-              <strong>
-                {data.lessons.find((l) => l.id === s.lessonId)?.title ||
-                  "O‘chirilgan dars"}
-              </strong>
-              <p>{s.answer}</p>
-              <span className="badge">
+        <h2>Amaliy natijalar tarixi</h2>
+        {!submissions.length && <p>Hali topshirilmagan.</p>}
+        {[...submissions].reverse().map((s) => (
+          <article className="submission" key={s.id}>
+            <h3>{s.lessonTitle}</h3>
+            <p>{s.answer}</p>
+            {s.attachment && (
+              <button
+                className="secondary"
+                onClick={() => download(s.attachment)}
+              >
+                {s.attachment.name} ↓
+              </button>
+            )}
+            <p>{new Date(s.createdAt).toLocaleString("uz-UZ")}</p>
+            <span className="badge">
+              {
                 {
-                  {
-                    pending: "Kutilmoqda",
-                    approved: "Tasdiqlangan",
-                    rejected: "Qaytarilgan",
-                  }[s.status]
-                }
-              </span>
-              <p>{s.feedback}</p>
-            </div>
-          ))}
-        <Link className="purple small" to="/admin/reviews">
-          Vazifalarni tekshirish →
+                  pending: "Tekshirilmoqda",
+                  approved: "Tasdiqlangan",
+                  rejected: "Qaytarilgan",
+                }[s.status]
+              }
+            </span>
+            <p>Baho: {s.grade ?? "—"} / 100</p>
+            <p>Admin izohi: {s.feedback || "—"}</p>
+          </article>
+        ))}
+        <Link className="primary inline-button" to="/admin/reviews">
+          Amaliy ishlarni tekshirish
         </Link>
       </section>
+      <section className="panel detail-panel">
+        <h2>Berilgan sertifikatlar</h2>
+        {data.certificates
+          .filter((c) => c.userId === studentId)
+          .map((c) => (
+            <div className="row" key={c.id}>
+              <span>
+                {c.title} · {c.score.toFixed(2)}%
+              </span>
+              <button
+                className="secondary"
+                onClick={() =>
+                  downloadCertificate(c).catch((e) => notify(e.message))
+                }
+              >
+                PDF yuklash
+              </button>
+            </div>
+          ))}
+      </section>
+      {edit && (
+        <StudentForm
+          student={student}
+          onClose={() => setEdit(false)}
+          onSaved={() => setEdit(false)}
+        />
+      )}{" "}
+      {voiding && (
+        <Modal title="To‘lovni bekor qilish" onClose={() => setVoiding(null)}>
+          <form onSubmit={voidPayment}>
+            <p>
+              {money(voiding.amount)} hisobdan chiqariladi, yozuv tarixda
+              saqlanadi.
+            </p>
+            <label>
+              Sabab
+              <textarea name="reason" required minLength={5} />
+            </label>
+            <button className="primary">Ha, bekor qilish</button>
+          </form>
+        </Modal>
+      )}
+      {feeEdit && (
+        <Modal title="Kelishilgan narx" onClose={() => setFeeEdit(null)}>
+          <form onSubmit={fee}>
+            <label>
+              Narx (so‘m)
+              <input
+                type="number"
+                min="0"
+                step="1"
+                required
+                name="fee"
+                defaultValue={feeEdit.fee}
+              />
+            </label>
+            <button className="primary">Saqlash</button>
+          </form>
+        </Modal>
+      )}
     </>
   );
 }
@@ -4277,72 +4508,7 @@ export default function StudentDetail() {
 ## src/pages/Support.css
 
 ```css
-.support-content {
-  max-width: 720px;
-}
-.support-form {
-  padding: 27px;
-}
-.support-form h3 {
-  margin: 0 0 25px;
-  font-size: 16px;
-}
-.support-form label {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  margin: 20px 0;
-}
-.support-form select,
-.support-form textarea {
-  margin-top: 9px;
-}
-.support-form textarea {
-  min-height: 150px;
-}
-.support-form .primary {
-  width: 100%;
-  justify-content: center;
-}
-.ticket {
-  padding: 22px;
-  margin: 15px 0;
-}
-.ticket strong {
-  font-size: 12px;
-}
-.ticket p {
-  font-size: 12px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.ticket small {
-  font-size: 10px;
-  color: var(--muted);
-}
-.reply {
-  background: #f5f0ff;
-  padding: 15px;
-  border-radius: 9px;
-  margin: 15px 0;
-}
-.faq {
-  padding: 25px;
-}
-.faq details {
-  border-bottom: 1px solid var(--line);
-  padding: 20px 0;
-}
-.faq summary {
-  font-size: 13px;
-  cursor: pointer;
-}
-.faq p {
-  font-size: 12px;
-  line-height: 1.9;
-  color: var(--muted);
-}
+/* Umumiy UI stillari src/index.css ichida, ranglar va shriftlar :root orqali boshqariladi. */
 
 ```
 
@@ -4458,7 +4624,7 @@ export default function Support() {
             {[
               [
                 "Keyingi dars qanday ochiladi?",
-                "Oldingi faol darslar testidan 70% dan yuqori oling. Aynan 70% yetarli emas. Videoni ko‘rish va vazifani tasdiqlash sertifikat uchun talab qilinadi.",
+                "Shu kursdagi oldingi faol darslar testidan 70% dan yuqori oling. Aynan 70% yetarli emas. Videoni ko‘rish va vazifani tasdiqlash sertifikat uchun talab qilinadi.",
               ],
               [
                 "Sertifikatni qanday olaman?",
@@ -4487,11 +4653,79 @@ export default function Support() {
 
 ```
 
+## src/services/certificate.js
+
+```js
+import { jsPDF } from "jspdf";
+export async function downloadCertificate(cert) {
+  await document.fonts.ready;
+  const canvas = document.createElement("canvas");
+  canvas.width = 1800;
+  canvas.height = 1273;
+  const ctx = canvas.getContext("2d");
+  const style = getComputedStyle(document.documentElement),
+    primary = style.getPropertyValue("--primary").trim(),
+    bg = style.getPropertyValue("--surface").trim(),
+    text = style.getPropertyValue("--text").trim();
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 1800, 1273);
+  ctx.strokeStyle = primary;
+  ctx.lineWidth = 8;
+  ctx.strokeRect(50, 50, 1700, 1173);
+  ctx.lineWidth = 2;
+  ctx.strokeRect(75, 75, 1650, 1123);
+  ctx.textAlign = "center";
+  const size = (key) => parseFloat(style.getPropertyValue("--cert-fs-" + key));
+  function line(value, y, size, color = text) {
+    ctx.fillStyle = color;
+    ctx.font = `600 ${size}px Arial`;
+    ctx.fillText(value, 900, y, 1550);
+  }
+  line("AI ACADEMY", 180, size("brand"), primary);
+  line("SERTIFIKAT", 330, size("title"), primary);
+  line("Kursni muvaffaqiyatli yakunlaganlik uchun", 410, size("subtitle"));
+  line(cert.name, 570, size("name"));
+  line(cert.title, 675, size("course"));
+  line(`Yakuniy test bahosi: ${cert.score.toFixed(2)}%`, 790, size("score"));
+  line(
+    `${cert.lessonCount} ta dars · video, test va amaliy ishlar yakunlangan`,
+    865,
+    size("body"),
+  );
+  line(
+    new Date(cert.createdAt).toLocaleDateString("uz-UZ"),
+    1010,
+    size("date"),
+  );
+  line(`ID: ${cert.id}`, 1090, size("id"));
+  line("AI Academy o‘quv platformasi", 1140, size("footer"));
+  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, 297, 210);
+  pdf.save("AI-Academy-sertifikat-" + cert.id.slice(0, 8) + ".pdf");
+}
+
+```
+
 ## src/services/db.js
 
 ```js
 export const KEY = "ai-academy-v1";
 export const uid = () => crypto.randomUUID();
+export const money = (n) => new Intl.NumberFormat("uz-UZ").format(n) + " so‘m";
+export const localDate = () => {
+  const d = new Date();
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
+};
+export function integer(value, min = 0) {
+  const n = Number(value);
+  if (value === "" || !Number.isSafeInteger(n) || n < min || n > 1e12)
+    throw Error("Miqdorni to‘g‘ri butun son sifatida kiriting.");
+  return n;
+}
 export const seed = {
   courses: [
     {
@@ -4593,31 +4827,96 @@ export const seed = {
   payments: [],
   testSessions: {},
 };
+
+export function migrate(input) {
+  const d = { ...structuredClone(seed), ...input };
+  d.courses ??= structuredClone(seed.courses);
+  d.payments ??= [];
+  d.testSessions ??= {};
+  d.certificates ??= [];
+  d.lessons = d.lessons.map((l) => ({
+    courseId: "course-ai",
+    materials: [],
+    ...l,
+  }));
+  if (!Array.isArray(d.enrollments))
+    d.enrollments = d.users
+      .filter((u) => u.role === "student")
+      .map((u) => ({
+        id: u.id + ":" + (u.courseId || "course-ai"),
+        userId: u.id,
+        courseId: u.courseId || "course-ai",
+        fee: Number(
+          u.courseFee ??
+            d.courses.find((c) => c.id === (u.courseId || "course-ai"))
+              ?.price ??
+            0,
+        ),
+        createdAt: u.createdAt || new Date().toISOString(),
+      }));
+  d.payments = d.payments.map((a) => ({
+    ...a,
+    courseId:
+      a.courseId ||
+      d.users.find((u) => u.id === a.userId)?.courseId ||
+      "course-ai",
+  }));
+  d.attempts = d.attempts.map((a) => ({
+    ...a,
+    courseId:
+      a.courseId ||
+      d.lessons.find((l) => l.id === a.lessonId)?.courseId ||
+      "course-ai",
+  }));
+  d.submissions = d.submissions.map((a) => ({
+    ...a,
+    courseId:
+      a.courseId ||
+      d.lessons.find((l) => l.id === a.lessonId)?.courseId ||
+      "course-ai",
+    reviews: a.reviews || [],
+    lessonTitle:
+      a.lessonTitle ||
+      d.lessons.find((l) => l.id === a.lessonId)?.title ||
+      "Eski dars",
+  }));
+  d.schemaVersion = 4;
+  return d;
+}
 export function read() {
+  const raw = localStorage.getItem(KEY);
+  if (!raw) return migrate(structuredClone(seed));
+  let value;
   try {
-    const d = JSON.parse(localStorage.getItem(KEY));
-    if (!d?.users || !d?.lessons) return structuredClone(seed);
-    return {
-      ...structuredClone(seed),
-      ...d,
-      courses: d.courses || structuredClone(seed.courses),
-      users: d.users.map((u) =>
-        u.role === "student" ? { courseId: "course-ai", ...u } : u,
-      ),
-      lessons: d.lessons.map((l) => ({ courseId: "course-ai", ...l })),
-      payments: d.payments || [],
-      testSessions: d.testSessions || {},
-    };
+    value = JSON.parse(raw);
   } catch {
-    return structuredClone(seed);
+    throw Error(
+      "Saqlangan ma’lumot buzilgan. Brauzer ma’lumotlarini o‘chirmang; zaxiradan tiklang.",
+    );
   }
+  if (!Array.isArray(value.users) || !Array.isArray(value.lessons))
+    throw Error("Ma’lumot tuzilmasi noto‘g‘ri.");
+  return migrate(value);
 }
 export function write(d) {
   localStorage.setItem(KEY, JSON.stringify(d));
 }
-// Test sharti: aynan 70% yetarli emas. Xom nisbat bo‘yicha tekshiriladi.
+export function enrollmentsFor(d, userId) {
+  return d.enrollments.filter((e) => e.userId === userId);
+}
+export function hasCourse(d, userId, courseId) {
+  return d.enrollments.some(
+    (e) => e.userId === userId && e.courseId === courseId,
+  );
+}
+export function studentLessons(d, userId, courseId) {
+  const ids = enrollmentsFor(d, userId).map((e) => e.courseId);
+  return d.lessons.filter(
+    (l) => ids.includes(l.courseId) && (!courseId || l.courseId === courseId),
+  );
+}
 export function attemptPassed(a) {
-  return Number.isInteger(a.correctCount) && a.total > 0
+  return a.total > 0 && Number.isInteger(a.correctCount)
     ? a.correctCount * 100 > a.total * 70
     : a.score > 70;
 }
@@ -4626,21 +4925,25 @@ export function passed(d, userId, lessonId) {
     (a) => a.userId === userId && a.lessonId === lessonId && attemptPassed(a),
   );
 }
-export function completed(d, userId, lessonId) {
-  return passed(d, userId, lessonId);
-}
+export const completed = passed;
 export function unlocked(d, userId, lessonId) {
-  const list = studentLessons(d, userId).filter((l) => l.published);
-  const index = list.findIndex((l) => l.id === lessonId);
-  return (
-    index >= 0 && list.slice(0, index).every((l) => passed(d, userId, l.id))
+  const lesson = d.lessons.find((l) => l.id === lessonId);
+  if (!lesson || !lesson.published || !hasCourse(d, userId, lesson.courseId))
+    return false;
+  const list = d.lessons.filter(
+    (l) => l.courseId === lesson.courseId && l.published,
   );
+  return list
+    .slice(
+      0,
+      list.findIndex((l) => l.id === lessonId),
+    )
+    .every((l) => passed(d, userId, l.id));
 }
 export function gradeAttempt(session, answers) {
-  const questions = session.questions;
-  if (!questions.length) throw Error("Test savollari yo‘q.");
+  if (!session.questions.length) throw Error("Savollar yo‘q.");
   if (
-    questions.some(
+    session.questions.some(
       (q) =>
         !Number.isInteger(answers[q.id]) ||
         answers[q.id] < 0 ||
@@ -4648,37 +4951,223 @@ export function gradeAttempt(session, answers) {
     )
   )
     throw Error("Barcha savollarga javob bering.");
-  const correctCount = questions.filter(
+  const correctCount = session.questions.filter(
     (q) => answers[q.id] === q.correct,
   ).length;
   return {
     ...session,
     answers: { ...answers },
-    total: questions.length,
     correctCount,
-    score: (correctCount / questions.length) * 100,
+    total: session.questions.length,
+    score: (correctCount / session.questions.length) * 100,
     createdAt: new Date().toISOString(),
   };
 }
 export function recordAttempt(d, session, answers) {
-  const key = session.userId + ":" + session.lessonId;
   if (d.attempts.some((a) => a.id === session.id)) return;
+  const key = session.userId + ":" + session.lessonId;
   if (d.testSessions[key]?.id !== session.id)
-    throw Error("Test sessiyasi o‘zgargan. Sahifani yangilang.");
+    throw Error("Test sessiyasi o‘zgargan.");
+  if (!unlocked(d, session.userId, session.lessonId))
+    throw Error("Dars yopilgan.");
   d.attempts.push(gradeAttempt(session, answers));
   delete d.testSessions[key];
 }
-export function paymentSummary(d, user) {
-  const paid = (d.payments || [])
-    .filter((x) => x.userId === user.id)
-    .reduce((n, x) => n + Number(x.amount), 0);
-  const fee = Number(user.courseFee) || 0;
+export function enrollmentSummary(d, e) {
+  const paid = d.payments
+    .filter(
+      (p) => p.userId === e.userId && p.courseId === e.courseId && !p.voidedAt,
+    )
+    .reduce((n, p) => n + p.amount, 0);
   return {
-    fee,
+    fee: e.fee,
     paid,
-    debt: Math.max(0, fee - paid),
-    credit: Math.max(0, paid - fee),
+    debt: Math.max(0, e.fee - paid),
+    credit: Math.max(0, paid - e.fee),
   };
+}
+export function paymentSummary(d, user) {
+  return enrollmentsFor(d, user.id).reduce(
+    (out, e) => {
+      const s = enrollmentSummary(d, e);
+      for (const k of Object.keys(out)) out[k] += s[k];
+      return out;
+    },
+    { fee: 0, paid: 0, debt: 0, credit: 0 },
+  );
+}
+export function saveStudent(d, draft, selected) {
+  const email = draft.email.trim().toLowerCase(),
+    name = draft.name.trim();
+  if (
+    name.length < 3 ||
+    !/^\S+@\S+\.\S+$/.test(email) ||
+    draft.password.length < 8
+  )
+    throw Error("Ism, email va kamida 8 belgili parol kiriting.");
+  if (d.users.some((u) => u.id !== draft.id && u.email.toLowerCase() === email))
+    throw Error("Email band.");
+  const ids = [...new Set(selected)];
+  if (!ids.length || ids.some((id) => !d.courses.some((c) => c.id === id)))
+    throw Error("Kamida bitta mavjud kursni tanlang.");
+  for (const e of enrollmentsFor(d, draft.id).filter(
+    (e) => !ids.includes(e.courseId),
+  )) {
+    if (
+      d.payments.some(
+        (p) => p.userId === draft.id && p.courseId === e.courseId,
+      ) ||
+      d.attempts.some(
+        (a) => a.userId === draft.id && a.courseId === e.courseId,
+      ) ||
+      d.submissions.some(
+        (a) => a.userId === draft.id && a.courseId === e.courseId,
+      ) ||
+      d.certificates.some(
+        (c) => c.userId === draft.id && c.courseId === e.courseId,
+      ) ||
+      d.lessons.some(
+        (l) =>
+          l.courseId === e.courseId && d.progress[draft.id]?.[l.id]?.watched,
+      )
+    )
+      throw Error("Tarixi yoki to‘lovi bor kursni olib tashlab bo‘lmaydi.");
+  }
+  d.enrollments = d.enrollments.filter(
+    (e) => e.userId !== draft.id || ids.includes(e.courseId),
+  );
+  for (const id of ids)
+    if (!hasCourse(d, draft.id, id))
+      d.enrollments.push({
+        id: uid(),
+        userId: draft.id,
+        courseId: id,
+        fee: integer(d.courses.find((c) => c.id === id).price),
+        createdAt: new Date().toISOString(),
+      });
+  const old = d.users.find((u) => u.id === draft.id);
+  const value = { ...draft, name, email, role: "student" };
+  if (old) Object.assign(old, value);
+  else d.users.push(value);
+}
+export function addPayment(d, p) {
+  if (d.payments.some((x) => x.id === p.id)) return;
+  const e = d.enrollments.find(
+    (e) => e.userId === p.userId && e.courseId === p.courseId,
+  );
+  if (!e) throw Error("Talaba kursga biriktirilmagan.");
+  const amount = integer(p.amount, 1);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(p.date) ||
+    p.date > localDate() ||
+    new Date(p.date + "T00:00:00Z").toISOString().slice(0, 10) !== p.date
+  )
+    throw Error("To‘lov sanasi noto‘g‘ri.");
+  if (amount > enrollmentSummary(d, e).debt)
+    throw Error("To‘lov qolgan qarzdan oshmasligi kerak.");
+  d.payments.push({ ...p, amount, createdAt: new Date().toISOString() });
+}
+export function submitPractice(d, s) {
+  if (d.submissions.some((x) => x.id === s.id)) return;
+  if (!unlocked(d, s.userId, s.lessonId))
+    throw Error("Darsga kirish yopilgan.");
+  if (s.answer.trim().length < 5) throw Error("Kamida 5 belgi yozing.");
+  if (
+    d.submissions.some(
+      (x) =>
+        x.userId === s.userId &&
+        x.lessonId === s.lessonId &&
+        x.status === "pending",
+    )
+  )
+    throw Error("Oldingi vazifa tekshirilmoqda.");
+  d.submissions.push({
+    ...s,
+    answer: s.answer.trim(),
+    status: "pending",
+    reviews: [],
+    createdAt: new Date().toISOString(),
+  });
+}
+export function reviewPractice(d, id, status, grade, feedback, adminId) {
+  if (!["approved", "rejected"].includes(status))
+    throw Error("Natija holati noto‘g‘ri.");
+  const s = d.submissions.find((s) => s.id === id);
+  if (!s || s.status !== "pending")
+    throw Error("Bu vazifa avval tekshirilgan.");
+  const score = integer(grade);
+  if (score > 100) throw Error("Baho 0–100 oralig‘ida bo‘lsin.");
+  Object.assign(s, {
+    status,
+    grade: score,
+    feedback,
+    reviewedAt: new Date().toISOString(),
+  });
+  s.reviews.push({
+    status,
+    grade: score,
+    feedback,
+    adminId,
+    createdAt: s.reviewedAt,
+  });
+}
+export function courseResult(d, userId, courseId) {
+  const lessons = d.lessons.filter(
+    (l) => l.courseId === courseId && l.published,
+  );
+  const scores = lessons.map((l) =>
+    Math.max(
+      0,
+      ...d.attempts
+        .filter((a) => a.userId === userId && a.lessonId === l.id)
+        .map((a) => a.score),
+    ),
+  );
+  const tests = lessons.filter((l) => passed(d, userId, l.id)).length;
+  const watched = lessons.filter(
+    (l) => d.progress[userId]?.[l.id]?.watched,
+  ).length;
+  const practical = lessons.filter((l) =>
+    d.submissions.some(
+      (s) =>
+        s.userId === userId && s.lessonId === l.id && s.status === "approved",
+    ),
+  ).length;
+  return {
+    lessons,
+    tests,
+    watched,
+    practical,
+    average: scores.length
+      ? scores.reduce((a, b) => a + b, 0) / scores.length
+      : 0,
+    ready:
+      hasCourse(d, userId, courseId) &&
+      lessons.length > 0 &&
+      tests === lessons.length &&
+      watched === lessons.length &&
+      practical === lessons.length,
+  };
+}
+export function issueCertificate(d, userId, courseId) {
+  const existing = d.certificates.find(
+    (c) => c.userId === userId && c.courseId === courseId,
+  );
+  if (existing) return existing;
+  const r = courseResult(d, userId, courseId);
+  if (!r.ready) throw Error("Kurs shartlari hali bajarilmagan.");
+  const cert = {
+    id: uid(),
+    userId,
+    courseId,
+    name: d.users.find((u) => u.id === userId).name,
+    title: d.courses.find((c) => c.id === courseId).title,
+    score: r.average,
+    createdAt: new Date().toISOString(),
+    lessonCount: r.lessons.length,
+  };
+  d.certificates.push(cert);
+  return cert;
 }
 const open = () =>
   new Promise((res, rej) => {
@@ -4718,11 +5207,17 @@ export async function getFile(id) {
   });
 }
 
-export function studentLessons(d, userId) {
-  const user = d.users.find((u) => u.id === userId);
-  return user?.courseId
-    ? d.lessons.filter((l) => l.courseId === user.courseId)
-    : [];
+export async function downloadMaterial(m) {
+  const blob = await getFile(m.fileId);
+  if (!blob) throw Error("Fayl shu brauzerda topilmadi. Admin qayta yuklasin.");
+  const url = URL.createObjectURL(blob),
+    a = document.createElement("a");
+  a.href = url;
+  a.download = m.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 15000);
 }
 
 ```
@@ -4735,5 +5230,22 @@ const url = process.env.REACT_APP_SUPABASE_URL;
 const key = process.env.REACT_APP_SUPABASE_PUBLISHABLE_KEY;
 export const supabase = url && key ? createClient(url, key) : null;
 // Keyingi bosqich: demo repository o‘rniga Supabase Auth, RLS va Storage adapteri ulanadi.
+
+```
+
+## src/setupTests.js
+
+```js
+import { TextEncoder, TextDecoder } from "util";
+import { randomUUID } from "crypto";
+global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder;
+global.structuredClone = (value) => JSON.parse(JSON.stringify(value));
+if (!global.crypto) global.crypto = {};
+Object.defineProperty(global.crypto, "randomUUID", {
+  value: randomUUID,
+  configurable: true,
+});
+global.IS_REACT_ACT_ENVIRONMENT = true;
 
 ```
