@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, Navigate, useNavigate } from "react-router-dom";
+import logo from "../assets/logo.png";
 import {
   BookOpen,
   Award,
@@ -20,7 +21,7 @@ import "./Layout.css";
 export function Brand() {
   return (
     <div className="brand">
-      <span>AI</span> Academy
+      <img src={logo} alt="" style={{ width: "100px", objectFit: "cover" }} />
     </div>
   );
 }

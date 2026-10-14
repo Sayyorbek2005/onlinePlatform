@@ -1,6 +1,9 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
+
+
 :root {
-  --primary: #080acd;
-  --primary-hover: #0608a7;
+  --primary: #0850cd;
+  --primary-hover: #0636a7;
   --primary-soft: #eceeff;
   --primary-border: #c5c9f7;
   --background: #f4f6fc;
@@ -26,27 +29,27 @@
   --radius: 16px;
   --sidebar-width: 290px;
   --header-height: 88px;
-  --fs-small: 18px;
-  --fs-base: 18px;
-  --fs-label: 18px;
+  --fs-small: 16px;
+  --fs-base: 16px;
+  --fs-label: 16px;
   --fs-medium: 20px;
-  --fs-h3: 22px;
-  --fs-h2: 28px;
+  --fs-h3: 20px;
+  --fs-h2: 26px;
   --fs-title: clamp(28px, 3vw, 40px);
-  --fs-stat: 32px;
+  --fs-stat: 30px;
   --fs-hero: clamp(36px, 5vw, 64px);
-  --fs-art: 80px;
+  --fs-art: 70px;
   --cert-fs-brand: 40px;
-  --cert-fs-title: 80px;
-  --cert-fs-subtitle: 28px;
-  --cert-fs-name: 62px;
-  --cert-fs-course: 44px;
-  --cert-fs-score: 38px;
-  --cert-fs-body: 27px;
-  --cert-fs-date: 26px;
-  --cert-fs-id: 22px;
-  --cert-fs-footer: 24px;
-  --font: Arial, Helvetica, sans-serif;
+  --cert-fs-title: 70px;
+  --cert-fs-subtitle: 26px;
+  --cert-fs-name: 55px;
+  --cert-fs-course: 40px;
+  --cert-fs-score: 34px;
+  --cert-fs-body: 25px;
+  --cert-fs-date: 23px;
+  --cert-fs-id: 20px;
+  --cert-fs-footer: 22px;
+  --font: "Poppins", sans-serif;
 }
 * {
   box-sizing: border-box;
@@ -217,6 +220,7 @@ svg {
 .ghost {
   background: var(--surface-soft);
   color: var(--text);
+  display: none;
 }
 .text-btn {
   background: var(--transparent);
@@ -259,6 +263,7 @@ svg {
 .page-heading p {
   margin: 0;
   color: var(--muted);
+  margin: 20px 0px;
 }
 .muted,
 .small,

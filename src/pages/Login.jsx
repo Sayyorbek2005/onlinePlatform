@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
+import logo from '../assets/logo.png'
 import {
   ArrowRight,
   Eye,
@@ -42,13 +43,16 @@ export default function Login() {
       </div>
       <div className="login-grid">
         <section className="login-story">
-          <div className="eyebrow">
+          {/* <div className="eyebrow">
             <Sparkles size={14} /> KELAJAK KO‘NIKMALARINI O‘RGANING
-          </div>
+          </div> */}
           <h1>
-            AI bilan
+            <em>
+              IT TAT      <b> </b>
+            </em>
+            bilan
             <br />
-            <em>kelajagingizni</em>
+            kelajagingizni
             <br />
             yarating.
           </h1>
@@ -57,7 +61,7 @@ export default function Login() {
             <br />
             Sizning muvaffaqiyatingiz uchun.
           </p>
-          <div className="ai-art">
+          {/* <div className="ai-art">
             <div className="orbit orbit-one" />
             <div className="orbit orbit-two" />
             <div className="float-icon one">
@@ -70,9 +74,10 @@ export default function Login() {
               AI<span>your next chapter</span>
             </div>
             <div className="art-base" />
-          </div>
+          </div> */}
+          <img src={logo} style={{width: '300px'}} alt="" />
           <div className="story-note">
-            <span>✦</span> Birinchi qadamingiz — eng muhim qadam.
+            {/* <span>✦</span> Birinchi qadamingiz — eng muhim qadam. */}
           </div>
         </section>
         <section className="login-form-wrap">
@@ -148,7 +153,7 @@ export default function Login() {
               Kirish <ArrowRight size={17} />
             </button>
             <div className="demo-access">
-              <span>DEMO HISOBNI TANLANG</span>
+              {/* <span>DEMO HISOBNI TANLANG</span> */}
               <div>
                 <button
                   type="button"
@@ -169,16 +174,16 @@ export default function Login() {
                   <ShieldCheck size={15} /> Admin
                 </button>
               </div>
-              <small>Sinov rejimi • Ma’lumotlar shu brauzerda saqlanadi</small>
+              {/* <small>Sinov rejimi • Ma’lumotlar shu brauzerda saqlanadi</small> */}
             </div>
           </form>
-          <p className="form-bottom">
+          {/* <p className="form-bottom">
             <ShieldCheck size={14} /> Bilim sari ishonchli qadam
-          </p>
+          </p> */}
         </section>
       </div>
       <div className="login-footer">
-        © 2026 AI Academy <span>O‘zingizga sarmoya kiriting.</span>
+        © 2026 by IT TAT group.
       </div>
     </div>
   );

@@ -87,10 +87,11 @@
 }
 .login-form {
   background: var(--surface);
-  padding: 32px;
+  padding: 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  max-height: 650px;
 }
 .login-form h2 {
   margin: 20px 0 12px;
@@ -136,6 +137,7 @@
 }
 .login-submit {
   width: 100%;
+  margin: 0px !important;
 }
 .demo-access {
   border-top: 1px solid var(--border);
